@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 import numpy as np
-from tokenizers import Tokenizer, models, pre_tokenizers, trainers
+from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 from transformers import PreTrainedTokenizerFast
 
 PAD, BOS, EOS, UNK = "<|pad|>", "<|bos|>", "<|eos|>", "<|unk|>"
@@ -31,6 +31,7 @@ def main() -> None:
 
     base = Tokenizer(models.BPE(unk_token=None))
     base.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+    base.decoder = decoders.ByteLevel()
     trainer = trainers.BpeTrainer(
         vocab_size=args.vocab_size,
         special_tokens=SPECIALS,

@@ -10,11 +10,12 @@ aligned to a document boundary near the end of the corpus.
 import argparse
 import csv
 import json
+import re
 import sys
 from pathlib import Path
 
 import numpy as np
-from tokenizers import Tokenizer, models, pre_tokenizers, trainers
+from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
 from transformers import PreTrainedTokenizerFast
 
 from prepare import BOS, EOS, PAD, UNK, SPECIALS
@@ -31,6 +32,16 @@ HEADER_FIELDS = [
 ]
 
 SKIP_TEXT = {"", "none"}
+MARKUP = re.compile(r"\{[^{}]*\}")
+
+
+def is_markup_line(text: str) -> bool:
+    """True for lines that are nothing but eHRAF markup blocks ({POST},
+    {fig: {graphic: ...}}, ...), allowing nesting."""
+    remainder = MARKUP.sub("", text)
+    while remainder != text:
+        text, remainder = remainder, MARKUP.sub("", remainder)
+    return not remainder.strip()
 
 
 def clean(value: str | None) -> str:
@@ -50,7 +61,7 @@ def iter_documents(csv_path: str):
                 if cur_title is not None:
                     yield fields, paragraphs
                 cur_title, fields, paragraphs = title, {}, []
-            if not text or text.lower() in SKIP_TEXT:
+            if not text or text.lower() in SKIP_TEXT or is_markup_line(text):
                 continue
             for col, label in HEADER_FIELDS:
                 value = clean(row.get(col))
@@ -90,6 +101,7 @@ def main() -> None:
 
     base = Tokenizer(models.BPE(unk_token=None))
     base.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
+    base.decoder = decoders.ByteLevel()
     trainer = trainers.BpeTrainer(
         vocab_size=args.vocab_size,
         special_tokens=SPECIALS,
