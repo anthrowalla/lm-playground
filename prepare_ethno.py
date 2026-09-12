@@ -1,10 +1,12 @@
 """Build the ethnographic corpus from eHRAF-style CSV into trainable bins.
 
 Streams the CSV, splits it into documents wherever the 'title' column changes
-(chronological/document order), prepends a one-line metadata header per
-document, and writes <|bos|> ... <|eos|> wrapped text. Then trains a BPE
-tokenizer and packs uint16 bins exactly like prepare.py, with the val split
-aligned to a document boundary near the end of the corpus.
+(chronological/document order), and writes <|bos|> ... <|eos|> wrapped text:
+a one-line metadata header, paragraphs each tagged with their OCM subject
+codes (<|ocm|>... after the paragraph text), and <|div|> markers at division
+(chapter-scale) boundaries. Then trains a BPE tokenizer and packs uint16 bins
+exactly like prepare.py, with the val split aligned to a document boundary
+near the end of the corpus.
 """
 
 import argparse
@@ -20,6 +22,8 @@ from transformers import PreTrainedTokenizerFast
 
 from prepare import BOS, EOS, PAD, UNK, SPECIALS
 
+OCM, DIV = "<|ocm|>", "<|div|>"
+
 HEADER_FIELDS = [
     ("title", "Title"),
     ("byline", "Author"),
@@ -29,10 +33,14 @@ HEADER_FIELDS = [
     ("pub.date", "Published"),
     ("pub.lang", "Language"),
     ("pub.type", "Type"),
+    ("owcs", "OWC"),
+    ("field.date", "Field dates"),
 ]
 
 SKIP_TEXT = {"", "none"}
+NULL_DATES = {"no date", "not applicable", "not specified", "n/a", "unknown"}
 MARKUP = re.compile(r"\{[^{}]*\}")
+OCM_CODES = re.compile(r"#?(\d{3})")
 
 
 def is_markup_line(text: str) -> bool:
@@ -49,11 +57,16 @@ def clean(value: str | None) -> str:
 
 
 def iter_documents(csv_path: str):
-    """Yield (header, paragraphs) per title change, preserving row order."""
+    """Yield (fields, paragraphs) per title change, preserving row order.
+
+    Paragraphs carry their OCM codes appended as <|ocm|>131 133, and a
+    standalone <|div|> entry precedes each new division within a document.
+    """
     csv.field_size_limit(sys.maxsize)
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         cur_title, fields, paragraphs = None, {}, []
+        prev_div = None
         for row in reader:
             text = (row.get("text") or "").strip()
             title = clean(row.get("title"))
@@ -61,13 +74,27 @@ def iter_documents(csv_path: str):
                 if cur_title is not None:
                     yield fields, paragraphs
                 cur_title, fields, paragraphs = title, {}, []
+                prev_div = None
             if not text or text.lower() in SKIP_TEXT or is_markup_line(text):
                 continue
             for col, label in HEADER_FIELDS:
                 value = clean(row.get(col))
+                if label == "Field dates":
+                    value = value.lower()
+                    if value in NULL_DATES:
+                        continue
                 if value:
                     fields[label] = value
-            paragraphs.append(text)
+            division = clean(row.get("division"))
+            if division and division != prev_div:
+                if prev_div is not None:
+                    paragraphs.append(DIV)
+                prev_div = division
+            codes = list(dict.fromkeys(OCM_CODES.findall(row.get("ocms") or "")))
+            if codes:
+                paragraphs.append(f"{text}\n{OCM}{' '.join(codes)}")
+            else:
+                paragraphs.append(text)
         if cur_title is not None:
             yield fields, paragraphs
 
@@ -104,7 +131,7 @@ def main() -> None:
     base.decoder = decoders.ByteLevel()
     trainer = trainers.BpeTrainer(
         vocab_size=args.vocab_size,
-        special_tokens=SPECIALS,
+        special_tokens=[*SPECIALS, OCM, DIV],
         initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
         show_progress=True,
     )
@@ -116,6 +143,7 @@ def main() -> None:
         eos_token=EOS,
         unk_token=UNK,
         pad_token=PAD,
+        additional_special_tokens=[OCM, DIV],
         model_max_length=1_000_000,
     )
 
@@ -159,6 +187,8 @@ def main() -> None:
         "bos_id": tokenizer.convert_tokens_to_ids(BOS),
         "eos_id": eos_id,
         "unk_id": tokenizer.convert_tokens_to_ids(UNK),
+        "ocm_id": tokenizer.convert_tokens_to_ids(OCM),
+        "div_id": tokenizer.convert_tokens_to_ids(DIV),
     }
     (out / "meta.json").write_text(json.dumps(meta, indent=2))
     print(f"wrote {out}/train.bin ({train_len:,}), {out}/val.bin ({total - train_len:,})")
