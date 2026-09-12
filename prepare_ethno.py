@@ -40,7 +40,7 @@ HEADER_FIELDS = [
 SKIP_TEXT = {"", "none"}
 NULL_DATES = {"no date", "not applicable", "not specified", "n/a", "unknown"}
 MARKUP = re.compile(r"\{[^{}]*\}")
-OCM_CODES = re.compile(r"#?(\d{3})")
+OCM_CODES = re.compile(r"#?(\d{3,4})(?!\d)")
 
 
 def is_markup_line(text: str) -> bool:
@@ -104,6 +104,21 @@ def format_document(fields: dict, paragraphs: list[str]) -> str:
     return f"<|bos|>{header}\n\n" + "\n\n".join(paragraphs) + "\n<|eos|>\n"
 
 
+def format_codebook(labels_path: Path) -> str:
+    """Codebook document: <|ocm|>CODE NAME lines, teaching code -> name."""
+    entries = []
+    for line in labels_path.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"(\d{3,4})\s+(.+?)\s*$", line.strip())
+        if m:
+            entries.append(f"{OCM}{m.group(1)} {m.group(2)}")
+    fields = {
+        "Title": "Outline of Cultural Materials (OCM) subject codes",
+        "Language": "English",
+        "Type": "Reference",
+    }
+    return format_document(fields, ["\n".join(entries)])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--csv", required=True, help="ethnographic corpus CSV")
@@ -111,6 +126,8 @@ def main() -> None:
     parser.add_argument("--vocab-size", type=int, default=32000)
     parser.add_argument("--val-tokens", type=int, default=1_048_576, help="tokens held out for val")
     parser.add_argument("--corpus", default=None, help="keep the intermediate plain-text corpus here")
+    parser.add_argument("--ocm-labels", default=None, help="OCM code list (CODE NAME per line) to embed as reference docs")
+    parser.add_argument("--ocm-labels-repeat", type=int, default=3, help="how many times to repeat the codebook")
     args = parser.parse_args()
 
     out = Path(args.out)
@@ -119,6 +136,12 @@ def main() -> None:
 
     n_docs, n_chars = 0, 0
     with corpus_path.open("w", encoding="utf-8") as f:
+        if args.ocm_labels:
+            for _ in range(max(1, args.ocm_labels_repeat)):
+                doc = format_codebook(Path(args.ocm_labels))
+                f.write(doc)
+                n_docs += 1
+                n_chars += len(doc)
         for fields, paragraphs in iter_documents(args.csv):
             doc = format_document(fields, paragraphs)
             f.write(doc)
