@@ -104,19 +104,32 @@ def format_document(fields: dict, paragraphs: list[str]) -> str:
     return f"<|bos|>{header}\n\n" + "\n\n".join(paragraphs) + "\n<|eos|>\n"
 
 
-def format_codebook(labels_path: Path) -> str:
-    """Codebook document: <|ocm|>CODE NAME lines, teaching code -> name."""
-    entries = []
-    for line in labels_path.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"(\d{3,4})\s+(.+?)\s*$", line.strip())
-        if m:
-            entries.append(f"{OCM}{m.group(1)} {m.group(2)}")
+def format_codebook(defs_path: Path) -> str:
+    """Codebook document: one paragraph per OCM code — <|ocm|>CODE NAME,
+    then its definition and (when present) related-term cross references,
+    teaching code -> name -> meaning."""
+    entries: list[str] = []
+    for block in defs_path.read_text(encoding="utf-8").split("\n\n"):
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if not lines:
+            continue
+        m = re.match(r"(\d{3,4})\s+(.+?)\s*$", lines[0])
+        if not m:
+            if entries:
+                entries[-1] += "\n" + "\n".join(lines)
+            continue
+        parts = [f"{OCM}{m.group(1)} {m.group(2)}"]
+        for line in lines[1:]:
+            if line.startswith("Summary - "):
+                line = line[len("Summary - "):]
+            parts.append(line)
+        entries.append("\n".join(parts))
     fields = {
-        "Title": "Outline of Cultural Materials (OCM) subject codes",
+        "Title": "Outline of Cultural Materials (OCM) subject codes and definitions",
         "Language": "English",
         "Type": "Reference",
     }
-    return format_document(fields, ["\n".join(entries)])
+    return format_document(fields, entries)
 
 
 def main() -> None:
@@ -126,7 +139,7 @@ def main() -> None:
     parser.add_argument("--vocab-size", type=int, default=32000)
     parser.add_argument("--val-tokens", type=int, default=1_048_576, help="tokens held out for val")
     parser.add_argument("--corpus", default=None, help="keep the intermediate plain-text corpus here")
-    parser.add_argument("--ocm-labels", default=None, help="OCM code list (CODE NAME per line) to embed as reference docs")
+    parser.add_argument("--ocm-labels", default=None, help="OCM definitions file (blocks: CODE NAME / Summary - ... / Related Terms - ...) to embed as reference docs")
     parser.add_argument("--ocm-labels-repeat", type=int, default=3, help="how many times to repeat the codebook")
     args = parser.parse_args()
 
