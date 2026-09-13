@@ -31,8 +31,8 @@ llama.cpp/build/bin/llama-quantize <f16.gguf> <q8_0.gguf> Q8_0
 ```
 
 **Serving: always pass an explicit `THREADS` (10 on the GB10), never `-t -1`.** Thread
-oversubscription on the 20-core GB10 collapses decode ~9x (7.7 vs 70-73 tok/s on medium q8_0).
-Pass physical core count on other hosts.
+oversubscription halves decode even idle (~73 vs ~150 tok/s on medium q8_0) and collapses
+it ~9x under concurrent load (e.g. an active training run). Pass physical core count on other hosts.
 
 ## Architecture
 

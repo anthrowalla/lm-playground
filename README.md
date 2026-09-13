@@ -32,11 +32,13 @@ make serve MODEL=checkpoints/medium_ethnographic_v3/medium-v3-q8_0.gguf
 ```
 
 **Always pass an explicit thread count (`THREADS`, default 10); never `-t -1`.**
-On the 20-core GB10, letting llama-server use every core collapses decode
-throughput ~9× from thread oversubscription — `medium q8_0` measures
-7.7 tok/s with `-t -1` but 70–73 tok/s with `-t 10` (8 and 4 threads give
-68 and 55). The same oversubscription will bite on any many-core host, so
-when serving elsewhere, pass the physical core count.
+On the 20-core GB10, thread oversubscription halves decode throughput even
+on an idle machine — `medium q8_0` decodes ~150 tok/s with `-t 10` vs
+~73 tok/s with `-t -1` — and under concurrent load (an active training run
+competes for cores and memory bandwidth) it collapses ~9×, to 7.7 tok/s.
+Corollary: benchmark numbers taken while training runs will read ~2× low
+across the board. The same oversubscription will bite on any many-core
+host, so when serving elsewhere, pass the physical core count.
 
 ## The ethnographic corpus
 
