@@ -52,6 +52,10 @@ build the bins with `prepare_ethno.py`:
 
 `data/ethnographic/ocmdefs.txt` (OCM codes, names, and definitions) is
 included as a reference document source; the corpus text itself is not.
+The trained v4 tokenizer is included under `tokenizers/ethnographic_v4/`,
+so anyone holding a GGUF of the model can run the tagging scripts
+(`scripts/tag_test.py`, `scripts/val_docs.py`) without rebuilding the
+corpus.
 
 ## Measured throughput (DGX Spark / GB10, bf16, torch.compile, seq 1024)
 

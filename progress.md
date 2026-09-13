@@ -89,6 +89,40 @@ code+name pairs directly — parsers should match the CODE NAME pattern,
 not the marker; and this remains qualitative — the precision/recall eval
 vs gold tags (`wayforward.md` Gate 0) is still the real test.
 
+### Qualitative v4 vs v3 comparison (2026-09-14)
+
+- Fluency markedly better in v4, attributed to the American Anthropologist
+  journal text. v3's noticeable repetition (whole sentences / long phrases)
+  is nearly gone — residuals are word- and syntactic-level.
+- Residual flaws are sentential-logic ("we got up at 5, and went to bed")
+  while the overall entry frame holds; occasional pronoun gender-agreement
+  slips, possibly ambiguous-antecedent artefacts.
+- Tagging pertinent in all ~2 dozen informal trials so far.
+
+### The val split is held-out ethnography — mapped and verified
+
+The assumption that no ethnography was held back is wrong, usefully:
+`prepare_ethno.py` holds out a document-aligned val split from the corpus
+tail, and `--extra-corpus` (journals) is deliberately inserted *before*
+the ethnography so val stays on-task (per the flag's help text). v4:
+train = 462.7M tokens, val = 1.23M tokens of **unseen** ethnographic
+documents.
+
+`scripts/val_docs.py` reconstructs exactly which documents those are,
+self-verified two ways: val.bin decoded with the lossless ByteLevel
+tokenizer must be the literal suffix of `corpus.txt`, and the decoded
+documents must match fresh `format_document()` regenerations from the
+source CSV (`et43texts/ethnotext_v430.csv`). Output:
+`data/ethnographic_v4/val_docs.jsonl` — **6 documents, 6,742 paragraphs
+(6,732 tagged), 466 distinct gold codes**.
+
+**Caveat — the slice is single-culture**: all 6 val documents are Eastern
+Toraja (OWC og11, field dates 1892-1932, the Adriani & Kruyt Celebes
+monographs; the CSV tail clusters hard). A Gate 0 eval on this slice is
+quantitative but measures one culture. For a general eval, the next
+corpus build should hold out a stratified sample (spread across OWC
+regions/cultures), or fresh held-out entries can be sourced.
+
 ## Measured results (DGX Spark / GB10)
 
 Throughput ladder (bf16, `torch.compile`, seq 1024, batch 32):

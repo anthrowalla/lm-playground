@@ -45,7 +45,7 @@ Pipeline: `prepare*.py` → `train.py` → `convert.py` → `llama-quantize` →
 
 ## Constraints & operational notes
 
-- **The eHRAF corpus is not redistributed** — users export their own CSV. `data/ethnographic/ocmdefs.txt` (OCM codes/names/definitions, published by HRAF at Yale) is included only as a reference-document source. The local `llama.cpp/` clone is also not committed.
+- **The eHRAF corpus is not redistributed** — users export their own CSV. The only committed data artifacts are `data/ethnographic/ocmdefs.txt` (OCM codes/names/definitions, published by HRAF at Yale; the `data/` gitignore has an exception for exactly this file) and `tokenizers/ethnographic_v4/` (the trained tokenizer, so GGUF holders can run the scripts in `scripts/`). `scripts/tag_test.py` exercises OCM tagging against a running llama-server; `scripts/val_docs.py` reconstructs the held-out val documents with gold tags. The local `llama.cpp/` clone is also not committed.
 - llama.cpp is built with `GGML_CUDA=OFF` — serving is CPU-based by design on this host.
 - Training runs are long (medium ≈ 9-12 h) and are typically launched in the background; the process survives terminal/session interruption — check `ps aux | grep train.py` and GPU utilization before assuming a run died. Progress estimate: ~1.64 s/step at medium scale.
 - **Known gap: `train.py` logs only to stdout** — no eval/loss history is persisted to disk, so an interrupted session loses the log. Saving eval history at `eval_every` is a wanted fix.

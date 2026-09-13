@@ -70,7 +70,7 @@ def main():
     ap.add_argument("--n-predict", type=int, default=24)
     ap.add_argument("--url", default="http://localhost:8082/completion")
     ap.add_argument("--tokenizer",
-                    default="data/ethnographic_v4/tokenizer.json")
+                    default="tokenizers/ethnographic_v4/tokenizer.json")
     ap.add_argument("--stream", action="store_true",
                     help="use SSE streaming endpoint handling")
     ap.add_argument("--live", action="store_true",
