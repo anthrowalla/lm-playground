@@ -57,10 +57,37 @@ Checkpoints completed: `tiny_shakespeare`, `small_ethnographic` (118M),
   Anthropologist** (1880s-2005) + named OCM tags + codebook reference docs.
 - `b4ed1fc` `make serve` parameterized (`MODEL`/`PORT`/`THREADS`).
 
-**In progress:** `medium_ethnographic_v4` (303M, 27000 steps, batch 32,
-seq 1024, ~1.64 s/step ≈ 12.3 h). Started 09:53; ETA ~22:15 same day. The run
-survives terminal interruption (detached process); only `training_state.pt`
-appears in the checkpoint dir until it finishes.
+**Completed:** `medium_ethnographic_v4` (303M, 27000 steps, batch 32,
+seq 1024) ran 09:53 → 22:04 (~12.2 h, ~1.62 s/step), all 27000 steps,
+cosine schedule fully decayed (final LR 3e-5 = min ratio 0.1). Converted to
+`medium-v4-f16.gguf` (607M) and `medium-v4-q8_0.gguf` (307.5 MiB, 8.5 BPW);
+smoke test with `llama-cli -t 10`: coherent generation at ~165 tok/s.
+Final val loss not recoverable — stdout log was lost to a session
+interruption (see Open items).
+
+### First tagging demonstration (2026-09-13, evening)
+
+The v4 named-tag hypothesis — that training with labels after the codes
+(`--tag-names`) would make the model reproduce labels when analyzing new
+text — **confirmed qualitatively**. Fed an unseen subsistence paragraph,
+the model greedily emitted:
+
+```
+222 COLLECTING 224 HUNTING AND TRAPPING 226 FISHING 241 TILLAGE 262 DIET
+462 DIVISION OF LABOR BY GENDER
+```
+
+Plausible codes for the passage, correct code→name pairings, then it
+resumed prose. A second paragraph (annual ceremony, genealogies, land
+inheritance disputes before a council of kinsmen) produced `423 REAL
+PROPERTY 428 INHERITANCE 613 LINEAGES 627 INFORMAL IN-GROUP JUSTICE` —
+again on target. `scripts/tag_test.py` (first resident of `scripts/`) runs
+this against llama-server `/completion` (temperature 0, `special: True`),
+in both buffered and SSE-streaming (`--stream --live`) modes at ~170 tok/s.
+Two nuances: the model skipped the `<|ocm|>` marker itself and emitted
+code+name pairs directly — parsers should match the CODE NAME pattern,
+not the marker; and this remains qualitative — the precision/recall eval
+vs gold tags (`wayforward.md` Gate 0) is still the real test.
 
 ## Measured results (DGX Spark / GB10)
 
@@ -72,9 +99,13 @@ Throughput ladder (bf16, `torch.compile`, seq 1024, batch 32):
 | medium | 303M   | 20.3k |
 | medium | 303M   | 20.7k @ batch 64 (+2% → compute-bound) |
 
-Scaling exponent vs params ≈ 0.85. Serving (llama.cpp, CPU): medium q8_0
-decodes 70-73 tok/s with `-t 10`; `-t -1` collapses to 7.7 tok/s — always pin
-`THREADS` to the physical core count (10 on the GB10).
+Scaling exponent vs params ≈ 0.85. Serving (llama.cpp, CPU, medium q8_0):
+`-t 10` decodes ~150 tok/s and `-t -1` ~73 tok/s on an **idle** machine
+(re-measured 2026-09-13 evening with llama-cli); the earlier figures of
+70-73 vs 7.7 tok/s were taken **during the v4 training run** — concurrent
+load compounds the oversubscription penalty to ~9×. Always pin `THREADS`
+to the physical core count (10 on the GB10), and don't benchmark while
+training.
 
 Val loss: medium-v3.1 5.04 → 3.27 over 20k steps, then flat (see above).
 
