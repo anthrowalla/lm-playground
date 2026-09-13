@@ -23,6 +23,21 @@ end-to-end smoke run:
 make deps prepare train gguf quantize serve
 ```
 
+### Serving notes
+
+`make serve` takes overrides — `MODEL`, `PORT`, and `THREADS`:
+
+```sh
+make serve MODEL=checkpoints/medium_ethnographic_v3/medium-v3-q8_0.gguf
+```
+
+**Always pass an explicit thread count (`THREADS`, default 10); never `-t -1`.**
+On the 20-core GB10, letting llama-server use every core collapses decode
+throughput ~9× from thread oversubscription — `medium q8_0` measures
+7.7 tok/s with `-t -1` but 70–73 tok/s with `-t 10` (8 and 4 threads give
+68 and 55). The same oversubscription will bite on any many-core host, so
+when serving elsewhere, pass the physical core count.
+
 ## The ethnographic corpus
 
 The eHRAF-derived corpus is **not redistributed** — export your own CSV and

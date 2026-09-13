@@ -1,5 +1,8 @@
 PYTHON := .venv/bin/python
 LLAMA_CPP ?= llama.cpp
+MODEL ?= checkpoints/tiny_shakespeare/tiny-q8_0.gguf
+PORT ?= 8080
+THREADS ?= 10
 
 .PHONY: deps prepare train gguf quantize serve clean
 
@@ -32,8 +35,8 @@ quantize: $(LLAMA_CPP)/build/bin/llama-server
 		checkpoints/tiny_shakespeare/tiny-q8_0.gguf Q8_0
 
 serve: $(LLAMA_CPP)/build/bin/llama-server
-	$(LLAMA_CPP)/build/bin/llama-server -m checkpoints/tiny_shakespeare/tiny-q8_0.gguf \
-		--host 127.0.0.1 --port 8080 -t -1
+	$(LLAMA_CPP)/build/bin/llama-server -m $(MODEL) \
+		--host 127.0.0.1 --port $(PORT) -t $(THREADS)
 
 clean:
 	rm -rf data/ts checkpoints/tiny_shakespeare
