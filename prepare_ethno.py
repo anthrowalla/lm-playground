@@ -160,6 +160,8 @@ def main() -> None:
     parser.add_argument("--ocm-labels", default=None, help="OCM definitions file (blocks: CODE NAME / Summary - ... / Related Terms - ...) to embed as reference docs")
     parser.add_argument("--ocm-labels-repeat", type=int, default=3, help="how many times to repeat the codebook")
     parser.add_argument("--tag-names", action="store_true", help="expand OCM codes in paragraph tags with their names (requires --ocm-labels)")
+    parser.add_argument("--extra-corpus", action="append", default=[],
+                        help="plain-text corpus file(s) (e.g., journal text) inserted after the codebook; appended <|bos|>...<|eos|> documents keep the tail of the corpus ethnographic so the val split stays on-task")
     args = parser.parse_args()
 
     out = Path(args.out)
@@ -177,6 +179,12 @@ def main() -> None:
                 f.write(doc)
                 n_docs += 1
                 n_chars += len(doc)
+        for extra in args.extra_corpus:
+            with open(extra, encoding="utf-8") as src:
+                while chunk := src.read(1 << 20):
+                    f.write(chunk)
+                    n_chars += len(chunk)
+            n_docs += 1
         for fields, paragraphs in iter_documents(args.csv, names):
             doc = format_document(fields, paragraphs)
             f.write(doc)
