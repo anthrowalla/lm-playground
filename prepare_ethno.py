@@ -56,11 +56,25 @@ def clean(value: str | None) -> str:
     return (value or "").replace("|", "/").replace("\n", " ").strip()
 
 
-def iter_documents(csv_path: str):
+def load_code_names(defs_path: Path) -> dict[str, str]:
+    """Map OCM code string -> official name, parsed from the definitions file."""
+    names: dict[str, str] = {}
+    for block in defs_path.read_text(encoding="utf-8").split("\n\n"):
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if lines:
+            m = re.match(r"(\d{3,4})\s+(.+?)\s*$", lines[0])
+            if m:
+                names[m.group(1)] = m.group(2)
+    return names
+
+
+def iter_documents(csv_path: str, names: dict[str, str] | None = None):
     """Yield (fields, paragraphs) per title change, preserving row order.
 
-    Paragraphs carry their OCM codes appended as <|ocm|>131 133, and a
-    standalone <|div|> entry precedes each new division within a document.
+    Paragraphs carry their OCM codes appended as <|ocm|>131 133 (or
+    <|ocm|>131 LOCATION 133 TOPOGRAPHY AND GEOLOGY when a name map is
+    given), and a standalone <|div|> entry precedes each new division
+    within a document.
     """
     csv.field_size_limit(sys.maxsize)
     with open(csv_path, newline="", encoding="utf-8") as f:
@@ -92,7 +106,11 @@ def iter_documents(csv_path: str):
                 prev_div = division
             codes = list(dict.fromkeys(OCM_CODES.findall(row.get("ocms") or "")))
             if codes:
-                paragraphs.append(f"{text}\n{OCM}{' '.join(codes)}")
+                if names:
+                    expanded = [f"{c} {names[c]}" if c in names else c for c in codes]
+                else:
+                    expanded = codes
+                paragraphs.append(f"{text}\n{OCM}{' '.join(expanded)}")
             else:
                 paragraphs.append(text)
         if cur_title is not None:
@@ -141,11 +159,15 @@ def main() -> None:
     parser.add_argument("--corpus", default=None, help="keep the intermediate plain-text corpus here")
     parser.add_argument("--ocm-labels", default=None, help="OCM definitions file (blocks: CODE NAME / Summary - ... / Related Terms - ...) to embed as reference docs")
     parser.add_argument("--ocm-labels-repeat", type=int, default=3, help="how many times to repeat the codebook")
+    parser.add_argument("--tag-names", action="store_true", help="expand OCM codes in paragraph tags with their names (requires --ocm-labels)")
     args = parser.parse_args()
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     corpus_path = Path(args.corpus) if args.corpus else out / "corpus.txt"
+    names = load_code_names(Path(args.ocm_labels)) if args.tag_names and args.ocm_labels else None
+    if args.tag_names and not args.ocm_labels:
+        raise SystemExit("--tag-names requires --ocm-labels")
 
     n_docs, n_chars = 0, 0
     with corpus_path.open("w", encoding="utf-8") as f:
@@ -155,7 +177,7 @@ def main() -> None:
                 f.write(doc)
                 n_docs += 1
                 n_chars += len(doc)
-        for fields, paragraphs in iter_documents(args.csv):
+        for fields, paragraphs in iter_documents(args.csv, names):
             doc = format_document(fields, paragraphs)
             f.write(doc)
             n_docs += 1
