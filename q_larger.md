@@ -55,6 +55,11 @@ medium. 1.3B starts making sense around **~10B+ effective tokens**, i.e.
   Empirical test: if val loss is still descending meaningfully at step 20k
   of the medium-v3 run, epochs are buying something. (Note: no loss log is
   persisted to disk — worth saving eval history next run.)
+  **Measured answer (2026-09-13)**: mostly flattened. Medium-v3.1 val went
+  5.04 → 3.27 over 20k steps (1.8 epochs), but the last ~10 evals sit at
+  3.27–3.29, gains < 0.02 per 500 steps. Extending epochs would buy only a
+  few hundredths — the corpus, not the schedule, is the binding constraint.
+  Real levers now: the tagging eval, task fine-tuning, and/or new text.
 - **Fresh domain tokens > repeats at the margin**: the American
   Anthropologist run (1880s–2005) plus other journals ≈ +5–10%
   (~20–40M tokens). Worth adding for *coverage*, not scale — AAA-style
