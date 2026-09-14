@@ -275,7 +275,10 @@ def main() -> None:
                 flush=True,
             )
         if t["eval_every"] and (step + 1) % t["eval_every"] == 0:
-            print(f"val_loss={evaluate(model, val_data, device, t):.4f}", flush=True)
+            val_loss = evaluate(model, val_data, device, t)
+            print(f"val_loss={val_loss:.4f}", flush=True)
+            with (out / "eval_history.jsonl").open("a") as ef:
+                ef.write(json.dumps({"step": step + 1, "val_loss": val_loss}) + "\n")
         if t["save_every"] and (step + 1) % t["save_every"] == 0:
             torch.save(
                 {"model": model.state_dict(), "opt": opt.state_dict(), "step": step},

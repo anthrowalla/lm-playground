@@ -22,13 +22,18 @@ Usage:
 
 import argparse
 import json
+import sys
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import requests
 from tokenizers import Tokenizer
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from prepare_ethno import load_code_names
 
 
 def parse_pairs(tag: str) -> list[list[str]]:
@@ -49,19 +54,25 @@ def parse_pairs(tag: str) -> list[list[str]]:
 def evaluate_one(tok: Tokenizer, url: str, idx: int, rec: dict,
                  n_predict: int, max_prompt: int,
                  valid_codes: set[str] | None, force_marker: bool,
-                 temperature: float) -> dict:
-    prompt = rec["text"] + "\n"
+                 temperature: float, prefix: str = "",
+                 marker_id: int | None = None) -> dict:
+    # encode the context prefix separately so head-truncation can never
+    # drop it — only the paragraph text gives way
+    prefix_ids = tok.encode(prefix, add_special_tokens=False).ids if prefix else []
+    ids = tok.encode(rec["text"] + "\n", add_special_tokens=False).ids
+    trunc = len(ids) + len(prefix_ids) > max_prompt
+    if trunc:
+        ids = ids[:max(0, max_prompt - len(prefix_ids))]
+    prompt_ids = prefix_ids + ids
     if force_marker:
         # append the tag marker so the model only has to pick codes —
         # separates code selection from the free-decode decision to tag
-        prompt += "<|ocm|>"
-    ids = tok.encode(prompt, add_special_tokens=False).ids
-    trunc = len(ids) > max_prompt
-    if trunc:
-        ids = ids[:max_prompt]
+        if marker_id is None:
+            marker_id = tok.token_to_id("<|ocm|>")
+        prompt_ids = prompt_ids + [marker_id]
     t0 = time.time()
     r = requests.post(url, json={
-        "prompt": ids,
+        "prompt": prompt_ids,
         "n_predict": n_predict,
         "temperature": temperature,
         "special": True,
@@ -81,7 +92,7 @@ def evaluate_one(tok: Tokenizer, url: str, idx: int, rec: dict,
         "pred": list(dict.fromkeys(codes)),
         "trunc": trunc,
         "raw": content,
-        "n_prompt": len(ids),
+        "n_prompt": len(prompt_ids),
         "ms": round(elapsed * 1000),
     }
 
@@ -138,6 +149,11 @@ def main() -> None:
                     help="score an existing output file and exit")
     ap.add_argument("--force-marker", action="store_true",
                     help="append <|ocm|> to the prompt (score code selection)")
+    ap.add_argument("--context", choices=["none", "title", "loo", "oracle"],
+                    default="none",
+                    help="prepend section context: title = section path; "
+                         "loo = path + union of sibling paragraphs' gold codes "
+                         "(leave-one-out); oracle = path + full section union")
     ap.add_argument("--temperature", type=float, default=0.0,
                     help="0 = greedy; small sampling can lengthen code lists")
     args = ap.parse_args()
@@ -152,9 +168,41 @@ def main() -> None:
 
     recs = [json.loads(l) for l in open(args.data, encoding="utf-8")]
     # flatten documents to tagged paragraphs, carrying doc fields along
-    items = [{"fields": d.get("fields", {}), **p}
-             for d in recs for p in d["paragraphs"] if p["tags"]]
+    items = []
+    for di, d in enumerate(recs):
+        for p in d["paragraphs"]:
+            if p["tags"]:
+                items.append({"doc": di, "fields": d.get("fields", {}), **p})
     tagged = list(enumerate(items))
+
+    # per-item context prefixes (section title path and/or section union)
+    prefixes = [""] * len(items)
+    if args.context != "none":
+        names = {}
+        if Path(args.ocm_labels).exists():
+            names = load_code_names(Path(args.ocm_labels))
+        groups = defaultdict(list)
+        for it in items:
+            groups[(it["doc"], it.get("section", ""))].append(it)
+        for i, it in enumerate(items):
+            sec = it.get("section", "")
+            lines = []
+            if sec:
+                lines.append(f"SECTION: {sec}")
+            if args.context in ("loo", "oracle"):
+                grp = groups[(it["doc"], sec)]
+                if args.context == "loo":
+                    sib = {c for o in grp if o is not it for c, _ in o["tags"]}
+                else:
+                    sib = {c for o in grp for c, _ in o["tags"]}
+                if sib:
+                    named = " ".join(
+                        f"{c} {names[c]}" if c in names else c
+                        for c in sorted(sib, key=lambda c: (len(c), c)))
+                    lines.append(f"SECTION CODES: {named}")
+            prefixes[i] = "\n".join(lines) + "\n\n" if lines else ""
+        n_ctx = sum(1 for p in prefixes if p)
+        print(f"context {args.context}: {n_ctx:,}/{len(items):,} paragraphs get a prefix")
     done = set()
     if out.exists():
         for l in out.open():
@@ -186,7 +234,7 @@ def main() -> None:
                     return evaluate_one(tok, args.url, i, rec,
                                         args.n_predict, args.max_prompt,
                                         valid, args.force_marker,
-                                        args.temperature)
+                                        args.temperature, prefixes[i])
                 except Exception as e:  # noqa: BLE001 - keep the run alive
                     if attempt == 2:
                         return {"idx": i, "error": str(e)}

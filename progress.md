@@ -162,7 +162,94 @@ quantitative but measures one culture. For a general eval, the next
 corpus build should hold out a stratified sample (spread across OWC
 regions/cultures), or fresh held-out entries can be sourced.
 
-## Measured results (DGX Spark / GB10)
+### Corpus v5 — tree-driven rebuild with section structure (2026-09-14)
+
+The pre-CSV corpus at `~/et43texts/ethnotext_v430` (AREA/SOCIETY/hdoc.txt,
+7,024 files) turned out to document everything the CSV flattening lost:
+`## section::eid; section.parent::P; TITLE; <`/`>` hierarchy (~266k sections,
+3+ levels), per-SRE metadata lines, SRE types (`p` 2.16M, `bibl.item` 334k,
+`enote` 51k), and `{POST}` post-text (figures, tables, notes). The CSV was a
+1:1 row dump of every `## ocms::` line — so the old pipeline had silently
+trained on bibliography entries and endnotes (notes ~70% duplicated inline +
+backmatter), and left `{...}` markup remnants in kept paragraphs.
+
+`prepare_ethno_tree.py` rebuilds from the tree with the intended design:
+
+- **p-type SREs only** — bibliography items and endnotes dropped;
+- **nested-aware `{...}` stripping** — the POST scaffolding is gone;
+- **`<|sec|>` headers** on section entry carrying the full title path
+  (ancestors joined " / ") and the **union of OCM codes** over all paragraphs
+  under that path — encoding the analyst observation that codes persist
+  across a section;
+- **hdocid-keyed documents** (basenames verified unique, 7,024/7,024);
+- **stratified whole-society val holdout** — 12 societies across all eight
+  OWC areas (fc07 Mende, fy08 Tanala, ru41 Nenets, ef05 Montenegrins,
+  st13 Island Carib, ma10 Basseri + ml01, mj04 Bedouin, nf12 Stoney,
+  nt18 Tewa Pueblos, oj13 Kwoma, sk15 Enxet/Enlhet), all English,
+  replacing the single-culture Toraja tail split;
+- tokenizer trained on the train stream only; `<|sec|>` is a new special
+  token (`sec_id` in meta.json).
+
+Measured: 6,865 content documents (159 skipped: 9 no-hdocid oddballs, 110
+bibliography/endnote-only files, 40 figure/table-only files), 2,052,162
+tagged paragraphs, 222,331 section headers (all carrying unions) →
+**train.bin 419.4M tokens, val.bin 3.578M tokens**; val round-trip
+(decode == corpus_val.txt) PASS. Note ~4.4 bytes/token — named tags and
+union lines add markup tokens relative to raw prose. Sanity anchors:
+og11-000 kept 32 paragraphs (old 41 incl. non-p types), og11-002 kept
+2,132 (old 2,134).
+
+v5 is the baseline for the next training run and for the
+section-conditioned work in `wayforward.md`: the eval set is now
+cross-culture, and `val_docs.jsonl` carries each paragraph's section path
+plus gold tags for section-conditioned evaluation.
+
+### Zero-training section-context ceiling check (2026-09-14)
+
+The `wayforward.md` ceiling check, run before any v5 training: does section
+context help a model that has never seen `<|sec|>`? v4 (forced marker,
+greedy) on the og11 slice reparsed from the tree in v5 form
+(`scripts/og11_slice.py`, 6,658 p-only stripped paragraphs) — the one slice
+v4 never trained on. Four paired prompt variants:
+
+| context | micro P | micro R | F1 | exact |
+|---|---|---|---|---|
+| none (baseline) | 0.526 | 0.298 | 0.381 | 0.071 |
+| section title path | 0.580 | 0.300 | 0.395 | 0.083 |
+| title + LOO section union | 0.500 | 0.487 | **0.493** | 0.083 |
+| title + full union (oracle) | 0.527 | 0.536 | **0.531** | 0.092 |
+
+Context variants prepend `SECTION: {title path}` and, for the union rows,
+`SECTION CODES: {named codes}`. **LOO** = union over the *sibling*
+paragraphs' gold codes (leave-one-out — deployable in an incremental assist
+flow: earlier paragraphs' tags become the prior for the next); **oracle**
+adds the target's own tags (ceiling only). Results land in
+`results/ceiling_og11_*.jsonl`.
+
+Readings:
+
+- **+29% relative F1 with zero training** (0.381 → 0.493) from sibling-code
+  context alone. Recall jumps 0.298 → 0.487 at a modest precision cost —
+  the model's chronic under-generation (~2 codes vs analyst ~3.4) is
+  largely a *prior* problem, and the section union is the prior. Mean
+  predicted codes/para rises to ~3.3 vs gold 3.4.
+- **LOO captures ~75% of the oracle headroom** ((0.493−0.381)/(0.531−0.381))
+  — the target's own tags add little beyond its siblings'. Sibling codes
+  predict paragraph codes almost as well as the paragraph itself.
+- Title path alone is mild (+0.014 F1, mostly precision).
+- Baseline shifted 0.353 → 0.381 vs the old CSV-text eval — the cleaned
+  (stripped, p-only) text is slightly easier for v4; all variants are
+  paired on identical text, so deltas are clean.
+
+Caveats: single-culture slice (og11); LOO uses *gold* sibling codes —
+deployment feeds model/analyst-produced codes instead (error propagation
+unmeasured, but the analyst is in the loop in that flow); oracle is
+leakage by construction. Direct implication: the section-conditioned
+direction is validated — v5's `<|sec|>` + union markup should internalize
+this prior, and even the *current* v4 + forced marker + LOO prompt is a
+usable analyst-assist flow at F1 ≈ 0.49.
+
+
 
 Throughput ladder (bf16, `torch.compile`, seq 1024, batch 32):
 
