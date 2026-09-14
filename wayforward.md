@@ -63,3 +63,66 @@ building the corpus to match.
 3. Choose corpus v5 mix per Gate 2; whichever direction, val stays
    ethnographic-only.
 4. Revisit model size only after the eval says the medium is the bottleneck.
+
+## Ways forward from the first tag eval (2026-09-14)
+
+Added after the v3-vs-v4 eval (see progress.md): forced-marker parity,
+v4 free-decode collapse from citation interference, model
+under-generation (~2 vs analyst ~3.4 codes/paragraph). Options:
+
+**(a) More pretraining epochs — deprioritized.** The measured v3 val
+curve was already flat (3.27-3.29); the eval failure modes are
+behavioral (under-generation, decode-mode interference), not
+undertraining. Revisit only if a val curve says tokens still help.
+
+**(b) Section-conditioned tagging — the strongest direction, but the
+markup does not exist yet.** Human analysts code contiguous *sections*
+of paragraphs (typically 1-5 pages), not isolated paragraphs: codes
+persist across a section — a wedding-ceremony section gets MARRIAGE on
+every paragraph, including ones about food preparation or dress. And
+sections have semantic flow: a code may hold only halfway, or start
+halfway. Consequence for the eval: a chunk of the 16.6k false negatives
+is likely *irreducible from paragraph-only context* — cold-start
+paragraph scoring conflates "model can't code" with "code not
+inferable from this paragraph alone."
+
+Crucial distinction: `<|div|>` in the corpus is NOT sections. Divisions
+are the coarse document parts — 1 = preface/document info (mostly coded
+000), 2 = main text, 3 = backmatter (bibliography, endnotes, index).
+True sections (topically related runs, sometimes matching named
+headings, often unnamed) would need to be marked up anew. Possible
+bootstrap: explicit headings where available; code-set-change detection
+as a first-pass segmenter (sections are, by construction, runs of
+persistent code sets — circular for training carry-over unless
+validated, but useful for drafting); LLM-assisted segmentation plus
+analyst review. Any eval of carry-over must use real held-out sections.
+
+Before committing to the fine-tune: **zero-training ceiling check** —
+re-run the eval with document/section context (header + preceding
+paragraphs, with or without their tags) and measure how much recall
+moves. That number is the headroom for section-conditioned training.
+
+**(c) Cheap decode-side fixes, no training.**
+- *Self-consistency union*: sample k drafts at moderate temperature,
+  union the predicted codes — directly attacks under-generation at
+  modest precision cost; runs on the existing harness.
+- *Task marker*: in the next fine-tune, give tagging its own trigger
+  token (e.g. `<|analyst|>`) instead of reusing the bare continuation —
+  separates tagging mode from prose-continuation (fixes the free-decode
+  citation interference) and is the natural vehicle for the
+  section-conditioned objective in the same pass.
+
+Suggested order: ceiling check + self-consistency (hours, no training)
+→ section markup + section-conditioned fine-tune → epochs last.
+
+### Section source data (note for the return)
+
+The hierarchy of sections exists in the original text, including the
+title text for each section where present. Rebuilding the corpus to
+carry this markup is not difficult: the form of the corpus before it is
+flattened into a CSV is a directory tree — the 8 geographic areas as
+the first level, a directory for each society within each geographic
+area, and the individual text documents (which contain all the section
+text) below that. Parsing that tree, rather than the flattened CSV,
+gives section boundaries and titles directly. To be looked into on
+return.

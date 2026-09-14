@@ -89,6 +89,45 @@ code+name pairs directly — parsers should match the CODE NAME pattern,
 not the marker; and this remains qualitative — the precision/recall eval
 vs gold tags (`wayforward.md` Gate 0) is still the real test.
 
+### First quantitative tag eval — forced marker (2026-09-14)
+
+`scripts/tag_eval.py` scores all 6,732 tagged val paragraphs, cold-start,
+greedy, predictions filtered to the 743 authoritative OCM codes. Forced
+marker (prompt = text + `\n<|ocm|>`, isolating code selection):
+
+| model | micro P | micro R | F1 | exact match |
+|---|---|---|---|---|
+| v4 (unseen val) | 0.533 | 0.264 | 0.353 | 0.079 |
+| v3 (contaminated: likely trained on these) | 0.517 | 0.297 | 0.377 | 0.075 |
+
+Reads as rough parity with contamination favoring v3 — v4 leads precision
+and exact-match on truly unseen data. Decode-design findings from the
+smoke runs: free decoding doubles as citation-continuation (AA-journal
+mode competes with tagging on cold-start prompts; forcing the marker
+removes it, F1 0.157 → 0.328); greedy beats temperature 0.6 (0.328 vs
+0.280); the model under-generates (~1.7-2 codes vs analyst ~3.4) but its
+picks are salient (P ≈ 0.53). The single-culture caveat applies (6
+Eastern Toraja documents).
+
+Full-run results, all 6,732 tagged val paragraphs (2026-09-14):
+
+| config | micro P | micro R | F1 | exact |
+|---|---|---|---|---|
+| v4 forced | 0.533 | 0.264 | 0.353 | 0.079 |
+| v3 forced (contaminated) | 0.517 | 0.297 | 0.377 | 0.075 |
+| v4 free | 0.508 | 0.088 | 0.150 | 0.025 |
+| v3 free (contaminated) | 0.516 | 0.297 | 0.377 | 0.075 |
+
+**The free-decode contrast is the headline**: v3 free ≈ v3 forced
+(0.377 = 0.377) — trained purely on text→bare-codes, v3 tags
+unconditionally. v4 free collapses (0.150): the AA-journal text taught
+citation continuation, which competes with tagging on cold-start
+prompts. The fluency v4 gained (see qualitative comparison above) came
+at the cost of unconditional tagging. Practical consequence: the
+analyst-assist flow should force the `<|ocm|>` marker (cheap, and
+equivalent to how the corpus is structured) — with it, v4 is at parity
+with v3 on unseen data.
+
 ### Qualitative v4 vs v3 comparison (2026-09-14)
 
 - Fluency markedly better in v4, attributed to the American Anthropologist
