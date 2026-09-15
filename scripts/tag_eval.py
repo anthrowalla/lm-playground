@@ -7,7 +7,9 @@ against gold with micro precision/recall/F1 plus exact-set-match. Output rows
 append to a JSONL file as they complete, so a run can be resumed after an
 interruption (already-present indexes are skipped).
 
-The same script serves v4 and v3 models:
+The same script serves v5, v4 and v3 models:
+  v5: --url http://localhost:8083/completion --tokenizer data/ethnographic_v5/tokenizer.json
+      --data data/ethnographic_v5/val_docs.jsonl  (sec-* contexts match v5's training format)
   v4: --url http://localhost:8082/completion --tokenizer tokenizers/ethnographic_v4/tokenizer.json
   v3: --url http://localhost:8080/completion --tokenizer data/ethnographic_v3/tokenizer.json
 (v3 was trained on bare codes; the parser handles both bare and named form.
@@ -33,7 +35,8 @@ from tokenizers import Tokenizer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from prepare_ethno import load_code_names
+from prepare_ethno import OCM, load_code_names
+from prepare_ethno_tree import SEC
 
 
 def parse_pairs(tag: str) -> list[list[str]]:
@@ -149,11 +152,14 @@ def main() -> None:
                     help="score an existing output file and exit")
     ap.add_argument("--force-marker", action="store_true",
                     help="append <|ocm|> to the prompt (score code selection)")
-    ap.add_argument("--context", choices=["none", "title", "loo", "oracle"],
+    ap.add_argument("--context",
+                    choices=["none", "title", "loo", "oracle",
+                             "sec-title", "sec-loo", "sec-oracle"],
                     default="none",
                     help="prepend section context: title = section path; "
                          "loo = path + union of sibling paragraphs' gold codes "
-                         "(leave-one-out); oracle = path + full section union")
+                         "(leave-one-out); oracle = path + full section union; "
+                         "sec-* variants use the native v5 <|sec|> header format")
     ap.add_argument("--temperature", type=float, default=0.0,
                     help="0 = greedy; small sampling can lengthen code lists")
     args = ap.parse_args()
@@ -186,21 +192,33 @@ def main() -> None:
             groups[(it["doc"], it.get("section", ""))].append(it)
         for i, it in enumerate(items):
             sec = it.get("section", "")
-            lines = []
-            if sec:
-                lines.append(f"SECTION: {sec}")
-            if args.context in ("loo", "oracle"):
+            sib = None
+            if args.context in ("loo", "oracle", "sec-loo", "sec-oracle"):
                 grp = groups[(it["doc"], sec)]
-                if args.context == "loo":
+                if args.context in ("loo", "sec-loo"):
                     sib = {c for o in grp if o is not it for c, _ in o["tags"]}
                 else:
                     sib = {c for o in grp for c, _ in o["tags"]}
+            if args.context.startswith("sec-"):
+                # native v5 header format: <|sec|>path\n<|ocm|>union\n\n
+                if not sec:
+                    continue
+                named = " ".join(
+                    f"{c} {names[c]}" if c in names else c
+                    for c in sorted(sib or (), key=lambda c: (len(c), c)))
+                header = f"{SEC}{sec}"
+                prefixes[i] = (f"{header}\n{OCM}{named}\n\n" if named
+                               else f"{header}\n\n")
+            else:
+                lines = []
+                if sec:
+                    lines.append(f"SECTION: {sec}")
                 if sib:
                     named = " ".join(
                         f"{c} {names[c]}" if c in names else c
                         for c in sorted(sib, key=lambda c: (len(c), c)))
                     lines.append(f"SECTION CODES: {named}")
-            prefixes[i] = "\n".join(lines) + "\n\n" if lines else ""
+                prefixes[i] = "\n".join(lines) + "\n\n" if lines else ""
         n_ctx = sum(1 for p in prefixes if p)
         print(f"context {args.context}: {n_ctx:,}/{len(items):,} paragraphs get a prefix")
     done = set()

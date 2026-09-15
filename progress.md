@@ -249,6 +249,67 @@ direction is validated — v5's `<|sec|>` + union markup should internalize
 this prior, and even the *current* v4 + forced marker + LOO prompt is a
 usable analyst-assist flow at F1 ≈ 0.49.
 
+### v5 training run (2026-09-14 → 15)
+
+`medium_ethnographic_v5` (303M, same hypers as v4: 27000 steps, batch 32,
+seq 1024) ran ~12 h, all steps, ~20.4k tok/s. **Eval history persisted for
+the first time** (`checkpoints/medium_ethnographic_v5/eval_history.jsonl`,
+54 evals): 4.96 @ 500 → 3.42 @ 5k → min **3.0027 @ 24k**, flattened at
+3.02-3.06 through step 27k; final val_loss 3.0367. Not comparable to v4's
+3.27 — the val sets differ (cross-culture stratified holdout vs Toraja
+tail). Converted to `medium-v5-f16.gguf` (606.8M) and
+`medium-v5-q8_0.gguf` (307.5 MiB, 8.50 BPW); serving on port 8083
+(`-t 10 -c 8192 --parallel 4`), v4 still on 8082, v3 on 8080.
+
+### The decisive eval — v5 on the cross-culture val (2026-09-15)
+
+Full OCM-tagging eval of v5 on its own held-out val (`val_docs.jsonl`,
+21,957 tagged paragraphs, 12 societies across all eight OWC areas,
+cold-start, greedy, 743-code whitelist). New `--context sec-*` variants in
+`scripts/tag_eval.py` prepend the *training-native* header
+(`<|sec|>title path\n<|ocm|>union\n\n`); LOO = union over sibling
+paragraphs' gold codes (deployable incrementally), oracle = full section
+union (leakage by construction).
+
+| run | context | micro P | micro R | F1 | exact |
+|---|---|---|---|---|---|
+| v5 forced | none | 0.397 | 0.336 | 0.364 | 0.107 |
+| v5 **free** | none | 0.398 | 0.331 | 0.362 | 0.104 |
+| v5 forced | sec-loo | 0.491 | 0.446 | **0.468** | 0.186 |
+| v5 forced | sec-oracle | 0.553 | 0.525 | **0.539** | 0.225 |
+| v4 forced (og11 ref) | none | 0.526 | 0.298 | 0.381 | 0.071 |
+| v4 **free** (og11 ref) | none | 0.526 | 0.297 | 0.380 | 0.070 |
+| v4 forced (og11 ref) | LOO prose | 0.500 | 0.487 | 0.493 | 0.083 |
+| v4 forced (og11 ref) | oracle prose | 0.527 | 0.536 | 0.531 | 0.092 |
+
+Readings:
+
+- **v5 tags unconditionally**: free ≈ forced (0.362 ≈ 0.364, identical to
+  three decimals in P) — the v3 behavior, now on genuinely clean data. No
+  marker forcing needed in the analyst flow.
+- **The earlier v4 free-collapse was a text-format effect, not (only)
+  journal competition.** v4 free on the *cleaned* og11 text scores 0.380 ≈
+  its forced 0.381 — the 0.150 free collapse measured on the old
+  CSV-format val text doesn't appear once paragraphs are stripped and
+  p-only. Both models tag freely on tree-cleaned text; the 0.150 headline
+  is revised.
+- **The section prior is model- and format-robust**: v5's native
+  `<|sec|>` header gains +29% relative F1 (0.364 → 0.468), mirroring v4's
+  +29% from prose-injected context (0.381 → 0.493). Unlike v4, v5 pays no
+  precision for the recall — P and R rise together (0.397/0.336 →
+  0.491/0.446), and exact match jumps 74% (0.107 → 0.186).
+- **LOO captures ~59% of the oracle headroom on v5**
+  ((0.468−0.364)/(0.539−0.364); v4 captured ~75%). Oracle F1 0.539 /
+  exact 0.225 on cross-culture data.
+- Best deployable flow: v5, free decode, section header with LOO union
+  built from earlier paragraphs' tags — F1 ≈ 0.47 with no marker forcing.
+
+Caveats: v4 rows are on og11 (single culture, clean for v4; in v5's
+train), v5 rows on its cross-culture val (clean for v5) — cross-model
+deltas are indicative, not paired. LOO uses gold sibling codes;
+deployment feeds model/analyst codes (analyst-in-the-loop). Oracle is
+leakage by construction.
+
 
 
 Throughput ladder (bf16, `torch.compile`, seq 1024, batch 32):
@@ -283,8 +344,9 @@ Val loss: medium-v3.1 5.04 → 3.27 over 20k steps, then flat (see above).
 
 ## Open items
 
-- `train.py` does not persist eval/loss history — stdout only. The v4 run's
-  log was lost to a session interruption; save eval history at `eval_every`
-  before the next long run.
-- scheduled check-in for the v4 run (~22:15 on 2026-09-13) to convert →
-  quantize → serve on completion.
+- ~~`train.py` does not persist eval/loss history~~ — fixed; appends
+  `eval_history.jsonl` in the run dir. First exercised by the v5 run.
+- ~~v5 eval: the decisive comparison~~ — done 2026-09-15 (see the table
+  above). Deployable flow: v5 + LOO section header, F1 ≈ 0.47.
+- Untested levers next: task fine-tuning on the tagging objective;
+  error-propagation test (LOO fed *model* codes instead of gold).
