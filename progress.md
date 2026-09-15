@@ -282,6 +282,35 @@ union (leakage by construction).
 | v4 forced (og11 ref) | LOO prose | 0.500 | 0.487 | 0.493 | 0.083 |
 | v4 forced (og11 ref) | oracle prose | 0.527 | 0.536 | 0.531 | 0.092 |
 
+The runs, briefly:
+
+- **v5 forced / none** — bare paragraph on a cold start with the `<|ocm|>`
+  marker appended, so the model only selects codes; v5's baseline on its
+  clean cross-culture holdout.
+- **v5 free / none** — no marker forced: the model must decide on its own
+  to emit a tag block (or continue prose). Measures unconditional tagging,
+  the zero-scaffolding analyst flow.
+- **v5 forced / sec-loo** — prepends the training-native
+  `<|sec|>title path` header plus `<|ocm|>` union of the *sibling*
+  paragraphs' gold codes (leave-one-out). The deployable incremental flow:
+  earlier paragraphs' tags become the prior for the next.
+- **v5 forced / sec-oracle** — same header, but the union covers the whole
+  section including the target paragraph's own gold codes (what the
+  training format literally carries). Ceiling only — leakage by
+  construction.
+- **v4 forced / none (og11 ref)** — v4's baseline on the og11 slice
+  (reparsed clean; the one text v4 never trained on), for cross-model
+  reference. Not paired with the v5 rows: different eval sets.
+- **v4 free / none (og11 ref)** — same without the forced marker, on
+  cleaned text; the run that revealed the old 0.150 free-collapse was a
+  text-format artifact (see Readings).
+- **v4 forced / LOO prose (og11 ref)** — the zero-training ceiling-check
+  variant: section context injected as prose lines (`SECTION: …`,
+  `SECTION CODES: …`) with the leave-one-out sibling union; v4 never saw
+  `<|sec|>` in training.
+- **v4 forced / oracle prose (og11 ref)** — same prose form with the full
+  gold section union; v4's leakage ceiling.
+
 Readings:
 
 - **v5 tags unconditionally**: free ≈ forced (0.362 ≈ 0.364, identical to
