@@ -29,6 +29,24 @@ Branch-specific files (duplicates; originals on `main` stay untouched):
 - Note: `tag_eval.py` currently has no small-specific knobs; the model dir
   and tokenizer paths are the only changes.
 
+### Stage 0 result (2026-09-15, full 21,957-para cross-culture val)
+
+Base trained 27000/27000 steps; final val_loss 3.1295 (min 3.0930 @ 22.5k;
+medium v5 was 3.003). Eval matrix (forced marker unless noted):
+
+| variant            | P     | R     | F1    | exact |
+|--------------------|-------|-------|-------|-------|
+| forced + none      | 0.391 | 0.312 | 0.347 | 0.107 |
+| free + none        | 0.395 | 0.309 | 0.346 | 0.104 |
+| forced + sec-loo   | 0.432 | 0.430 | 0.431 | 0.154 |
+| forced + sec-oracle| 0.492 | 0.509 | 0.500 | 0.190 |
+
+vs medium v5 (0.364 / 0.362 / 0.468 / 0.539): the 118M base lands within
+~5%, free ≈ forced holds here too, LOO gives the same +24% relative lift
+and captures ~55% of oracle headroom (medium ~59%). The LOO-conditioning
+effect is stable across scale — the fine-tune question is well-posed at
+both sizes. FT anchor: sec-loo F1 0.431 (gate: ≥ ~0.46).
+
 ## Stages 1+ — identical to `finetune_plan.md`
 
 Same task format (70% sec-loo / 30% cold, masked loss on target tokens),
