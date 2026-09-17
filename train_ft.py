@@ -110,17 +110,26 @@ def build_eval_sample(tok, val_docs, names, ocm_id, n=250, seed=0, max_prompt=90
 
 
 @torch.no_grad()
+def greedy_new(model, tok, ids, device, max_new=40, stop="\n\n"):
+    """Greedy-decode new tokens after ids, stopping at `stop`."""
+    x = torch.tensor([ids], device=device)
+    n = len(ids)
+    for _ in range(max_new):
+        logits = model(x[:, -model.cfg["seq_len"]:])[:, -1]
+        nxt = int(logits.argmax(-1))
+        x = torch.cat([x, torch.tensor([[nxt]], device=device)], dim=1)
+        if stop and stop in tok.decode(x[0, n:].tolist()):
+            break
+    return tok.decode(x[0, n:].tolist()).split("\n\n")[0]
+
+
+@torch.no_grad()
 def tagging_f1(model, tok, sample, valid, device, max_new=40):
     """Greedy-decode the tag block per sample; micro P/R/F1 vs gold."""
     model.eval()
     tp = fp = fn = 0
     for ids, gold in sample:
-        x = torch.tensor([ids], device=device)
-        for _ in range(max_new):
-            logits = model(x[:, -model.cfg["seq_len"]:])[:, -1]
-            nxt = int(logits.argmax(-1))
-            x = torch.cat([x, torch.tensor([[nxt]], device=device)], dim=1)
-        out = tok.decode(x[0, len(ids):].tolist()).split("\n\n")[0]
+        out = greedy_new(model, tok, ids, device, max_new)
         codes = list(dict.fromkeys(c for c, _ in parse_pairs(out)
                                    if c in valid))
         g, p = set(gold), set(codes)
@@ -134,6 +143,48 @@ def tagging_f1(model, tok, sample, valid, device, max_new=40):
     return prec, rec, f1
 
 
+def norm_words(s):
+    return [w for w in re.split(r"[^a-z0-9]+", s.lower()) if w]
+
+
+@torch.no_grad()
+def title_f1(model, tok, sample, valid, device, max_new=48):
+    """Greedy-decode the title path per sample; word-bag P/R/F1 vs gold."""
+    model.eval()
+    tp = fp = fn = exact = 0
+    for ids, gold in sample:
+        out = greedy_new(model, tok, ids, device, max_new)
+        g, p = set(norm_words(" ".join(gold))), set(norm_words(out))
+        tp += len(g & p)
+        fp += len(p - g)
+        fn += len(g - p)
+        exact += norm_words(out) == norm_words(" ".join(gold))
+    model.train()
+    prec = tp / (tp + fp) if tp + fp else 0.0
+    rec = tp / (tp + fn) if tp + fn else 0.0
+    f1 = 2 * prec * rec / (prec + rec) if prec + rec else 0.0
+    return prec, rec, f1
+
+
+def build_title_sample(tok, val_docs, sec_id, n=200, seed=0, budget=800):
+    """Fixed title sample from val societies: (prompt_ids ending <|sec|>, gold path)."""
+    rng = random.Random(seed)
+    recs = [json.loads(l) for l in open(val_docs, encoding="utf-8")]
+    groups = defaultdict(list)
+    for di, d in enumerate(recs):
+        for p in d["paragraphs"]:
+            if p.get("section"):
+                groups[(di, p["section"])].append(p["text"])
+    keys = list(groups)
+    rng.shuffle(keys)
+    tail_ids = tok.encode("\n\n", add_special_tokens=False).ids
+    sample = []
+    for k in keys[:n]:
+        txt_ids = tok.encode("\n\n".join(groups[k]), add_special_tokens=False).ids
+        sample.append((txt_ids[:budget] + tail_ids + [sec_id], k[1]))
+    return sample
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--config", required=True)
@@ -145,6 +196,8 @@ def main() -> None:
     ap.add_argument("--val-docs", default="data/ethnographic_v5/val_docs.jsonl")
     ap.add_argument("--ocm-labels", default="data/ethnographic/ocmdefs.txt")
     ap.add_argument("--eval-n", type=int, default=200)
+    ap.add_argument("--eval-task", choices=["tags", "titles", "none"],
+                    default="tags")
     ap.add_argument("--max-steps", type=int, help="override train.steps")
     ap.add_argument("--no-compile", action="store_true")
     args = ap.parse_args()
@@ -180,8 +233,17 @@ def main() -> None:
     ocm_id = tok.token_to_id(OCM)
     valid = set(re.findall(r"(?m)^(\d{3,4})\s",
                            Path(args.ocm_labels).read_text(encoding="utf-8")))
-    eval_sample = build_eval_sample(tok, args.val_docs, names, ocm_id, args.eval_n)
-    print(f"tagging-F1 eval on {len(eval_sample)} fixed sec-loo samples")
+    if args.eval_task == "titles":
+        eval_sample = build_title_sample(tok, args.val_docs,
+                                         tok.token_to_id(SEC), args.eval_n)
+        eval_fn, metric = title_f1, "title"
+        print(f"title-F1 eval on {len(eval_sample)} fixed val-society sections")
+    elif args.eval_task == "none":
+        eval_sample, eval_fn, metric = None, None, "none"
+    else:
+        eval_sample = build_eval_sample(tok, args.val_docs, names, ocm_id, args.eval_n)
+        eval_fn, metric = tagging_f1, "tagging"
+        print(f"tagging-F1 eval on {len(eval_sample)} fixed sec-loo samples")
 
     out = Path(raw["out_dir"])
     out.mkdir(parents=True, exist_ok=True)
@@ -219,12 +281,12 @@ def main() -> None:
             t0 = time.time()
             print(f"step={step + 1} loss={loss.item():.4f} lr={lr:.6f} "
                   f"grad_norm={gnorm:.3f} tok/s={rate:,.0f}", flush=True)
-        if t["eval_every"] and (step + 1) % t["eval_every"] == 0:
-            p, r, f1 = tagging_f1(model, tok, eval_sample, valid, device)
-            print(f"tagging P={p:.3f} R={r:.3f} F1={f1:.3f}", flush=True)
+        if t["eval_every"] and eval_fn and (step + 1) % t["eval_every"] == 0:
+            p, r, f1 = eval_fn(model, tok, eval_sample, valid, device)
+            print(f"{metric} P={p:.3f} R={r:.3f} F1={f1:.3f}", flush=True)
             with (out / "eval_history.jsonl").open("a") as ef:
-                ef.write(json.dumps({"step": step + 1, "tag_P": p,
-                                     "tag_R": r, "tag_F1": f1}) + "\n")
+                ef.write(json.dumps({"step": step + 1, f"{metric}_P": p,
+                                     f"{metric}_R": r, f"{metric}_F1": f1}) + "\n")
             best = 0.0
             if (out / "best_f1.txt").exists():
                 best = float((out / "best_f1.txt").read_text())
@@ -245,8 +307,9 @@ def main() -> None:
         if src.exists():
             shutil.copy2(src, out / name)
     print(f"saved HF checkpoint to {out}")
-    p, r, f1 = tagging_f1(model, tok, eval_sample, valid, device)
-    print(f"final tagging P={p:.3f} R={r:.3f} F1={f1:.3f}")
+    if eval_fn:
+        p, r, f1 = eval_fn(model, tok, eval_sample, valid, device)
+        print(f"final {metric} P={p:.3f} R={r:.3f} F1={f1:.3f}")
 
 
 if __name__ == "__main__":
