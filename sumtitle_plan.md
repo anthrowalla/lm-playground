@@ -47,6 +47,41 @@ automatic gold — quality is judged by inspection and later by analysts;
 the checkable failure modes are society-prior echo (predicting generic
 summary text regardless of source) and verbatim copying.
 
+## Results (2026-09-17, first round)
+
+**Run 1 full-path variant: learned, but wrong granularity.** 194,498
+examples (113M tokens), 12000 steps (~2.3 h at half speed — shared GPU
+with run 2). Training loss fell 2.0 → ~0.9 (replay batches ~2.9), but
+in-training title F1 sat flat at ~0.02 across all six evals. Sample
+generations show *why*: the model produces document-appropriate,
+topically-adjacent full paths — Kuanyama-style paths for a Kuanyama doc,
+"THE CHIEF'S HOUSE" where gold said "THE CHIEF AND HIS CHIEFDOM",
+"HOUSING" where gold said "SHELTERS, HUTS, AND HOUSES" — near-synonyms
+that word-bag F1 cannot credit, plus long book-prefix ancestors that are
+book-identifiable but section-irrelevant. Full paths are the wrong target:
+too much irreducible ambiguity, too little credit per near-miss. **Pivot:
+retrain with leaf-title targets** (`--granularity leaf`, same recipe).
+Base zero-shot anchor (leaf scoring, 2,000 val sections): **F1 0.054**
+(P 0.033 / R 0.149).
+
+**Run 2 culture-summary pairing: society-prior echo confirmed.** 10,568
+pairs from 344 societies, 3000 steps. Probes on 8088 (q8_0, port 8088):
+
+- fo32-002 (Nkundó parent-child affection) → generic Mongo culture-summary
+  boilerplate ("The Mongo are a Bantu-speaking people who live in the
+  Congo Basin…"), not a summary of the source.
+- fo32-011 (pregnancy/physique) → unrelated bride-price text with heavy
+  118M repetition loops.
+- st13 (Island Carib, its `-000` doc never seen by FT or corpus): format
+  transfers (society-named opening sentence) then degrades into repetition.
+
+The model learned *which society*, not *what the source says* — with all
+targets of a society sharing its summary voice, predicting "some Mongo
+summary text" already minimizes loss. The pairing signal (top-2 Jaccard)
+was too weak to overcome the society prior at 118M. Recorded as a negative
+result; a stronger signal (source section's own title path + codes in the
+prompt, or tighter Jaccard thresholds) would be the next lever, if any.
+
 ## Decision context
 
 If the title task lands (clear token-F1 lift over the base model's

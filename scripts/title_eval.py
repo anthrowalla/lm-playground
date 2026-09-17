@@ -34,16 +34,20 @@ def norm_words(s):
     return [w for w in re.split(r"[^a-z0-9]+", s.lower()) if w]
 
 
+def leaf(s):
+    return s.split(" / ")[-1]
+
+
 def score_rows(rows):
     tp = fp = fn = exact = 0
     for r in rows:
         if "error" in r:
             continue
-        g, p = set(norm_words(r["gold"])), set(norm_words(r["pred"]))
+        g, p = set(norm_words(leaf(r["gold"]))), set(norm_words(leaf(r["pred"])))
         tp += len(g & p)
         fp += len(p - g)
         fn += len(g - p)
-        exact += norm_words(r["pred"]) == norm_words(r["gold"])
+        exact += norm_words(leaf(r["pred"])) == norm_words(leaf(r["gold"]))
     prec = tp / (tp + fp) if tp + fp else 0.0
     rec = tp / (tp + fn) if tp + fn else 0.0
     f1 = 2 * prec * rec / (prec + rec) if prec + rec else 0.0
@@ -53,8 +57,8 @@ def score_rows(rows):
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--data", default="data/ethnographic_v5/val_docs.jsonl")
-    ap.add_argument("--url", required=True)
-    ap.add_argument("--tokenizer", required=True)
+    ap.add_argument("--url", default=None)
+    ap.add_argument("--tokenizer", default=None)
     ap.add_argument("--out", required=True)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--max-text", type=int, default=800,

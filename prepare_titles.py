@@ -28,6 +28,9 @@ def main() -> None:
     ap.add_argument("--tokenizer", default="data/ethnographic_v5/tokenizer.json")
     ap.add_argument("--val-docs", default="data/ethnographic_v5/val_docs.jsonl")
     ap.add_argument("--target", type=int, default=200_000, help="examples")
+    ap.add_argument("--granularity", choices=["leaf", "full"], default="leaf",
+                    help="leaf = last path component only; full path proved "
+                         "unlearnable to F1 (book prefixes + near-synonyms)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--limit-files", type=int, default=0, help="smoke: only N files")
     args = ap.parse_args()
@@ -65,7 +68,9 @@ def main() -> None:
                 if path:
                     groups[tuple(path)].append(text)
             for path, texts in groups.items():
-                examples.append(("\n\n".join(texts), " / ".join(path)))
+                target = (" / ".join(path) if args.granularity == "full"
+                          else path[-1])
+                examples.append(("\n\n".join(texts), target))
         ex_by_area[area] = examples
         print(f"{area}: {len(examples):,} titled sections from {len(fps)} files",
               flush=True)

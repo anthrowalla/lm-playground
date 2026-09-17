@@ -152,18 +152,22 @@ def norm_words(s):
     return [w for w in re.split(r"[^a-z0-9]+", s.lower()) if w]
 
 
+def leaf(s):
+    return s.split(" / ")[-1]
+
+
 @torch.no_grad()
 def title_f1(model, tok, sample, valid, device, max_new=48):
-    """Greedy-decode the title path per sample; word-bag P/R/F1 vs gold."""
+    """Greedy-decode the title per sample; word-bag P/R/F1 vs gold (leaf level)."""
     model.eval()
     tp = fp = fn = exact = 0
     for ids, gold in sample:
         out = greedy_new(model, tok, ids, device, max_new)
-        g, p = set(norm_words(" ".join(gold))), set(norm_words(out))
+        g, p = set(norm_words(leaf(gold))), set(norm_words(leaf(out)))
         tp += len(g & p)
         fp += len(p - g)
         fn += len(g - p)
-        exact += norm_words(out) == norm_words(" ".join(gold))
+        exact += norm_words(leaf(out)) == norm_words(leaf(gold))
     model.train()
     prec = tp / (tp + fp) if tp + fp else 0.0
     rec = tp / (tp + fn) if tp + fn else 0.0
