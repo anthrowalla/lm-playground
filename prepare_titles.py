@@ -28,8 +28,6 @@ def main() -> None:
     ap.add_argument("--tokenizer", default="data/ethnographic_v5/tokenizer.json")
     ap.add_argument("--val-docs", default="data/ethnographic_v5/val_docs.jsonl")
     ap.add_argument("--target", type=int, default=200_000, help="examples")
-    ap.add_argument("--prompt-budget", type=int, default=800,
-                    help="max prompt text tokens (rest of 1024 for marker+target)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--limit-files", type=int, default=0, help="smoke: only N files")
     args = ap.parse_args()
@@ -84,14 +82,18 @@ def main() -> None:
 
     toks, lens, plens = [], [], []
     n_skip = 0
+    n_over = 0
     for text, path in picked:
         txt_ids = tok.encode(text, add_special_tokens=False).ids
         tgt_ids = tok.encode(path + MARKER, add_special_tokens=False).ids
-        if len(txt_ids) < 32:
+        # total must fit seq_len: text + "\n\n" + <|sec|> + target
+        budget = 1024 - len(tail_ids) - 1 - len(tgt_ids)
+        if len(txt_ids) < 32 or budget < 32:
             n_skip += 1
             continue
-        if len(txt_ids) > args.prompt_budget:
-            txt_ids = txt_ids[:args.prompt_budget]
+        if len(txt_ids) > budget:
+            txt_ids = txt_ids[:budget]
+            n_over += 1
         prompt_ids = txt_ids + tail_ids + [sec_id]
         ids = prompt_ids + tgt_ids
         toks.extend(ids)
@@ -105,8 +107,9 @@ def main() -> None:
     np.array(toks, dtype=np.uint16).tofile(out / "ft.bin")
     offsets.tofile(out / "ft_offsets.npy")
     np.array(plens, dtype=np.int32).tofile(out / "ft_plens.npy")
+    assert max(lens) <= 1024, f"example length {max(lens)} exceeds seq_len"
     print(f"wrote {out}: {len(lens):,} examples, {len(toks):,} tokens "
-          f"({n_skip} skipped)")
+          f"({n_over:,} head-truncated, {n_skip} skipped)")
 
 
 if __name__ == "__main__":
