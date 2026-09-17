@@ -109,14 +109,14 @@ def main() -> None:
             pre_ids = tok.encode(f"Source ({culture}):\n",
                                  add_special_tokens=False).ids
             post_ids = tok.encode("\n\nSummary:\n", add_special_tokens=False).ids
-            nl = len(tok.encode("\n\n", add_special_tokens=False).ids)
+            nl = tok.encode("\n\n", add_special_tokens=False).ids
             for j, src in ranked:
                 s_ids = tok.encode(src, add_special_tokens=False).ids
-                if len(s_ids) > budget_max - len(pre_ids) - len(post_ids) - len(t_ids):
+                if len(s_ids) > budget_max - len(pre_ids) - len(post_ids) \
+                        - len(t_ids) - len(nl):
                     n_short += 1
                     continue
-                ids = pre_ids + s_ids + post_ids + t_ids + \
-                    tok.encode("\n\n", add_special_tokens=False).ids
+                ids = pre_ids + s_ids + post_ids + t_ids + nl
                 toks.extend(ids)
                 lens.append(len(ids))
                 plens.append(len(pre_ids) + len(s_ids) + len(post_ids))
@@ -129,6 +129,7 @@ def main() -> None:
     np.array(toks, dtype=np.uint16).tofile(out / "ft.bin")
     offsets.tofile(out / "ft_offsets.npy")
     np.array(plens, dtype=np.int32).tofile(out / "ft_plens.npy")
+    assert max(lens) <= budget_max, f"example length {max(lens)} exceeds seq_len"
     print(f"wrote {out}: {n_pairs:,} pairs ({n_nosrc} no-source, "
           f"{n_long} target too long, {n_short} too short), {len(toks):,} tokens")
 

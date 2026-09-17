@@ -42,10 +42,15 @@ PAD_IGNORE = -100
 class TagDataset:
     """Padded example batches from ft.bin + offsets + prompt lengths."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, seq_len: int):
         self.toks = np.fromfile(path / "ft.bin", dtype=np.uint16)
         self.offsets = np.fromfile(path / "ft_offsets.npy", dtype=np.int64)
         self.plens = np.fromfile(path / "ft_plens.npy", dtype=np.int32)
+        lens = np.diff(self.offsets)
+        if lens.max() > seq_len:
+            raise ValueError(
+                f"example length {int(lens.max())} exceeds seq_len {seq_len} "
+                f"— rebuild the dataset with a total-length budget")
 
     def __len__(self):
         return len(self.plens)
@@ -215,7 +220,7 @@ def main() -> None:
     model.load_state_dict(load_file(str(Path(args.init_ckpt) / "model.safetensors")))
     print(f"init from {args.init_ckpt}")
 
-    train_data = TagDataset(Path(args.ft_data))
+    train_data = TagDataset(Path(args.ft_data), c["seq_len"])
     replay = ReplayDataset(args.replay_bin, c["seq_len"])
     print(f"ft examples: {len(train_data):,}; replay stream {len(replay.data):,} tokens")
 
