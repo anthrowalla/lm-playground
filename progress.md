@@ -359,6 +359,28 @@ training.
 
 Val loss: medium-v3.1 5.04 → 3.27 over 20k steps, then flat (see above).
 
+## Summarization-adjacent FTs (branch `sum-title`, 2026-09-17)
+
+No prose summaries exist in the corpus (the doc `synopsis` field is subject
+keywords), so two weak-supervision runs were tried at 118M
+(`sumtitle_plan.md` has the full record):
+
+- **Section-title generation — works, at leaf granularity.** 194,498
+  sections; trigger reuses the corpus's own `<|sec|>` continuation. The
+  first full-path variant trained fine (loss 2.0 → 0.9) but scored ~0.02:
+  the model emitted book-appropriate, topically-adjacent paths near
+  synonyms the word-bag metric can't credit ("HOUSING" vs "SHELTERS, HUTS,
+  AND HOUSES") — wrong granularity, not a broken FT. Retrained on leaf
+  titles: **F1 0.224 vs base zero-shot 0.054 (exact 0.159 vs 0.001)** on
+  all 2,498 val sections; served on 8087. Usable as an analyst-assist
+  "what is this chunk about?" feature.
+- **Culture-summary pairing (the `-000` docs) — negative result.** 10,568
+  code-Jaccard pairs (344 societies); the model produces society-generic
+  summary boilerplate regardless of the source section (society-prior
+  echo), because all targets of a society share its voice. A stronger
+  retrieval key (source title path + codes in the prompt) would be the
+  next lever; idea retired for now.
+
 ## Tagging fine-tune — small-model dress rehearsal (branch `small-v5-tag`, 2026-09-15 → 17)
 
 While the HRAF analyst review of `eHRAF_analysis_v5_a.md` pends, the whole

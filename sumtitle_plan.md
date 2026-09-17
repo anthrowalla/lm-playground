@@ -82,6 +82,34 @@ was too weak to overcome the society prior at 118M. Recorded as a negative
 result; a stronger signal (source section's own title path + codes in the
 prompt, or tighter Jaccard thresholds) would be the next lever, if any.
 
+## Results (2026-09-17, round 2 — leaf titles)
+
+The leaf retrain (same 194,498 sections, targets = last path component,
+127.8M tokens, 12000 steps ~2.3 h) delivers: in-training F1 jumped to
+0.234 by step 2000, plateaued 0.23–0.25, best **0.2518 @ step 10000**
+(best state served). Full-val eval (2,498 sections, q8_0 on port 8087):
+
+| model                | word-bag P | R     | **F1**   | exact |
+|----------------------|------------|-------|----------|-------|
+| small v5 base, zero-shot | 0.033 | 0.149 | 0.054 | 0.001 |
+| **small v5-title FT**    | 0.282 | 0.185 | **0.224** | 0.159 |
+
+~4× over base, with exact-match 0 → 16% — the leaf granularity was the
+fix. Qualitative shape: exact hits on formulaic sections
+("INDUSTRIAL ARTS"), topic-right/position-wrong on content sections
+("Chapter II. The Art of the Kpelle" for a Kpelle crafts chapter),
+sensible neighbors in backmatter ("Conclusion" ↔ "Discussion"). The
+residual gap is largely irreducible adjacent-section ambiguity (a
+section's opening genuinely resembles its neighbors), not model failure.
+
+Verdict: **summarization-adjacent conditioning works at 118M** — text in,
+topical descriptor out, in the document's own vocabulary. As an analyst-
+assist feature ("what is this chunk about?") it is usable; as a demo
+companion to the tagging model it gives the review packet a second skill.
+Medium-scale leaf-title FT after analyst feedback is cheap (~2.5 h) if
+wanted; the sumpairs pairing idea stays retired unless the source's own
+title path + codes are added as an explicit retrieval key.
+
 ## Decision context
 
 If the title task lands (clear token-F1 lift over the base model's
