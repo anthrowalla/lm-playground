@@ -62,9 +62,58 @@ check, free ≈ forced). Differences:
   LOO→oracle gap. If yes, the strategy generalizes across scale and the
   medium run is de-risked.
 
+## Stage 1 result (small FT, 2026-09-17)
+
+Dataset: 799,340 examples (548,564 sec-loo / 251,436 cold ≈ 69/31),
+177.2M tokens. Run: 31000 steps ~5.5 h (lr 2e-5, warmup 100, 20% replay);
+in-training tagging F1 reached ~0.48 by step 2000, plateaued 0.50–0.526,
+**best 0.5259 @ step 28000** (P 0.566 / R 0.491), no late collapse.
+Best-checkpoint GGUF (q8_0, 126 MB) served on 8086.
+
+Full-val matrix (21,957 paras, forced marker unless noted):
+
+| variant             | small base | **small FT** | Δ      | medium pre-FT |
+|---------------------|------------|--------------|--------|---------------|
+| forced + none       | 0.347      | 0.381        | +0.034 | 0.364         |
+| free + none         | 0.346      | 0.379        | +0.033 | 0.362         |
+| forced + sec-loo    | 0.431      | **0.507**    | +0.076 | 0.468         |
+| forced + sec-oracle | 0.500      | 0.546        | +0.046 | 0.539         |
+| sec-loo, sibling-PRED unions | — | **0.492** | −0.015 vs gold-union | — |
+
+### Gate verdicts
+
+- **sec-loo ≥ ~0.46** — PASS (0.507). The 118M FT beats medium pre-FT on
+  every variant.
+- **free ≈ forced** — PASS (0.379 vs 0.381). The FT tags unconditionally;
+  the marker-forcing crutch is not load-bearing.
+- **echo-the-union guard** — PASS, and informative: on the 1,575 trap
+  paragraphs (gold == union, where echoing is the right answer) the FT
+  echoes 80.9% of the time (base 88.9%). On the 19,830 paragraphs that
+  require real discrimination (gold ⊊ union) FT F1 is 0.490 vs base 0.407,
+  and the FT steps *outside* the union more often than the base (22.2% vs
+  13.7%) while raising precision (0.549 vs 0.432 overall). The gain is
+  discrimination skill, not prior-gaming.
+- **error-propagation probe** (`scripts/error_prop.py`, sec-loo with unions
+  over siblings' *predicted* codes — the deployment condition) — F1 0.492
+  vs 0.507 with gold unions: only −0.015 (−3%). The section prior almost
+  fully survives feeding the model its own predictions; the flow degrades
+  gracefully in the incremental loop.
+- **fluency** — PASS. Free prose continuation shows the same repetition
+  loop as the base model (side-by-side on 8085/8086), i.e. a 118M-scale
+  property, not FT damage; tag decode is clean (median output = one code
+  line).
+
 ## Decision gate
 
 If small-FT hits its gates, port the FT tooling to `main` unchanged and
 launch the medium run after analyst feedback. If small-FT fails a gate,
 the failure mode (prior-gaming vs format-overfit vs fluency loss)
 diagnoses the spec before burning the medium run.
+
+**Verdict (2026-09-17): all gates pass.** The FT's sec-loo (0.507) lands
+above the *base model's own oracle bound* (0.500) and inside the spec's
+medium target band (0.50–0.55); it captures 66% of the remaining LOO→oracle
+headroom ((0.507−0.431)/(0.546−0.431)). The strategy — LOO-conditioned
+masked-loss FT + LM replay — generalizes across scale; tooling is ready to
+port to `main`. Medium FT remains gated on HRAF analyst feedback
+(`finetune_plan.md`).
