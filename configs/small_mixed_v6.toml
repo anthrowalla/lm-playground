@@ -1,0 +1,34 @@
+train_bin = "data/mixed_v6/train.bin"
+val_bin = "data/mixed_v6/val.bin"
+meta_path = "data/mixed_v6/meta.json"
+out_dir = "checkpoints/small_mixed_v6"
+device = "cuda"
+dtype = "bfloat16"
+compile = true
+
+[model]
+hidden = 768
+ffn = 2688
+layers = 12
+heads = 12
+kv_heads = 4
+seq_len = 1024
+rope_theta = 10000.0
+norm_eps = 0.00001
+tie_embeddings = true
+
+[train]
+lr = 0.0003
+warmup = 500
+min_lr_ratio = 0.1
+batch = 64
+accum = 1
+steps = 30400
+weight_decay = 0.1
+beta1 = 0.9
+beta2 = 0.95
+grad_clip = 1.0
+log_every = 10
+eval_every = 5000
+save_every = 5000
+seed = 42

@@ -359,6 +359,47 @@ training.
 
 Val loss: medium-v3.1 5.04 → 3.27 over 20k steps, then flat (see above).
 
+### Language-floor pivot — mixed-corpus v6 + pretrained-base plan (2026-09-18)
+
+The v5 models do the analysis skill but are poor generators: hallucinated
+ethnographic prose, conjunction-flip repetition loops, pronoun-gender errors,
+contradictory phrases. Diagnosis is data scale — v5-small saw 419M tokens,
+~0.18x the token budget implied by Chinchilla-style ratios for 118M params.
+Two approved responses:
+
+- **Track A (from scratch, launched)** — corpus v6, a mixed general/domain
+  corpus built by `prepare_mix.py` from three streams: FineWeb-Edu
+  sample/10BT rows (fetched by `scripts/fetch_general.py`, 4 shards,
+  6.98 GB chars), Project Gutenberg classics in the requested domains
+  (philosophy/logic/sociology/political economy: Plato, Aristotle-adjacent
+  logicians, Hobbes, Spinoza, Kant, Hume, Locke, Russell, Mill x2, Marx/Engels,
+  Adam Smith, Nietzsche x2, Montaigne, Marcus Aurelius, Machiavelli, Descartes
+  — 17 of 18 candidates fetched, one 404 gracefully skipped), and the v5
+  domain stream (`corpus_train.txt` verbatim: codebook x3 + AA journals +
+  tagged ethnography; the 12 val societies remain excluded, so all v5 task
+  evals stay valid). Fresh 32k BPE (same specials incl. `<|ocm|>`, `<|sec|>`).
+  Measured mix: **general 76.1% / classics 1.0% (repeated x6) / domain 22.9%**,
+  train 1.996B tokens (3.85 GB bin), val 27.2M tokens (domain val first +
+  classics head + 22.7k general docs); val round-trip decode PASS;
+  `mix_report.json` carries the counts. Build took ~6 min (~5M tok/s encode).
+- **Track B (pretrained base, planned)** — `pretrained_adapt_plan.md`:
+  SmolLM2-360M (Apache-2.0, Llama arch — our state dicts already match)
+  + `<|ocm|>`/`<|sec|>` special tokens + mean-init embedding resize →
+  re-vectorized v5 streams → DAPT (~0.5-0.6B tokens, domain + general
+  replay, lr 1e-4, ~9 h) → task FTs re-run with the full gate matrix plus
+  fluency/perplexity gates. Needs `train.py --init` + an HF-safetensors
+  start-point script. Decision gate after both tracks: B wins fluency by
+  construction; if tagging gates match, B becomes the serving line and A the
+  ablation/understanding track.
+
+Training: `configs/small_mixed_v6.toml` (small 118M dims, batch 64, 30,400
+steps = 1 epoch ≈ 2.0B tokens, lr 3e-4 cosine, warmup 500, eval_every 5000
+with eval history persisted). Healthy start: 45.9k tok/s (matches the
+throughput ladder), GPU 96%, ETA ~12 h. Note this supersedes the earlier
+"general English ~20-30% would help fluency only" note — the goal changed
+from tagging optimization to building a language floor; tagging evals still
+run against the untouched v5 val societies.
+
 ## Next steps (from `q_larger.md`)
 
 1. **OCM-tagging eval** — precision/recall vs gold paragraph tags on held-out
