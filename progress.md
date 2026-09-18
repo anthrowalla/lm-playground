@@ -359,6 +359,69 @@ training.
 
 Val loss: medium-v3.1 5.04 → 3.27 over 20k steps, then flat (see above).
 
+## Summarization-adjacent FTs (branch `sum-title`, 2026-09-17)
+
+No prose summaries exist in the corpus (the doc `synopsis` field is subject
+keywords), so two weak-supervision runs were tried at 118M
+(`sumtitle_plan.md` has the full record):
+
+- **Section-title generation — works, at leaf granularity.** 194,498
+  sections; trigger reuses the corpus's own `<|sec|>` continuation. The
+  first full-path variant trained fine (loss 2.0 → 0.9) but scored ~0.02:
+  the model emitted book-appropriate, topically-adjacent paths near
+  synonyms the word-bag metric can't credit ("HOUSING" vs "SHELTERS, HUTS,
+  AND HOUSES") — wrong granularity, not a broken FT. Retrained on leaf
+  titles: **F1 0.224 vs base zero-shot 0.054 (exact 0.159 vs 0.001)** on
+  all 2,498 val sections; served on 8087. Usable as an analyst-assist
+  "what is this chunk about?" feature.
+- **Culture-summary pairing (the `-000` docs) — negative result.** 10,568
+  code-Jaccard pairs (344 societies); the model produces society-generic
+  summary boilerplate regardless of the source section (society-prior
+  echo), because all targets of a society share its voice. A stronger
+  retrieval key (source title path + codes in the prompt) would be the
+  next lever; idea retired for now.
+
+## Tagging fine-tune — small-model dress rehearsal (branch `small-v5-tag`, 2026-09-15 → 17)
+
+While the HRAF analyst review of `eHRAF_analysis_v5_a.md` pends, the whole
+fine-tune spec of `finetune_plan.md` was validated cheaply at 118M
+(`finetune_plan_small.md` has the full record; small v5 base trained first:
+27000 steps, final val_loss 3.1295 vs medium's 3.003). FT: 799,340
+prompt/target pairs (69% sec-loo / 31% cold) built from the corpus tree,
+masked loss on the code line only, 20% raw-LM replay, 31000 steps ~5.5 h.
+In-training tagging F1 plateaued 0.50–0.526; best 0.5259 @ step 28000
+served as q8_0 on port 8086.
+
+Full-val matrix (21,957 paras; base = small v5, FT = small v5-tag,
+medium = v5 pre-FT for reference):
+
+| variant              | base  | FT    | medium |
+|----------------------|-------|-------|--------|
+| forced + none        | 0.347 | 0.381 | 0.364  |
+| free + none          | 0.346 | 0.379 | 0.362  |
+| forced + sec-loo     | 0.431 | **0.507** | 0.468 |
+| forced + sec-oracle  | 0.500 | 0.546 | 0.539  |
+| sec-loo w/ sibling-PRED unions | — | 0.492 | — |
+
+Readings:
+
+- The FT's sec-loo beats medium pre-FT and sits *above the base's own
+  oracle bound* (0.500); free ≈ forced holds (0.379/0.381).
+- **Echo-the-union guard passed with substance**: on the 19,830 paragraphs
+  requiring real discrimination (gold ⊊ union), FT F1 0.490 vs base 0.407,
+  and the FT leaves the union more often (22.2% vs 13.7%) while improving
+  precision — gain is skill, not prior-gaming.
+- **Error-propagation probe** (`scripts/error_prop.py`): feeding the LOO
+  header *the model's own* sibling predictions instead of gold costs only
+  −0.015 F1 (0.492 vs 0.507). The section prior survives the incremental
+  deployment loop almost intact.
+- Fluency: free prose still loops at 118M — identically before and after
+  the FT, a scale property, not FT damage.
+
+All acceptance gates passed → FT tooling (`prepare_finetune.py`,
+`train_ft.py`, `scripts/error_prop.py`) is ready to port to `main`; the
+medium (303M) run stays gated on analyst feedback (`finetune_plan.md`).
+
 ### Language-floor pivot — mixed-corpus v6 + pretrained-base plan (2026-09-18)
 
 The v5 models do the analysis skill but are poor generators: hallucinated
@@ -418,5 +481,8 @@ run against the untouched v5 val societies.
   `eval_history.jsonl` in the run dir. First exercised by the v5 run.
 - ~~v5 eval: the decisive comparison~~ — done 2026-09-15 (see the table
   above). Deployable flow: v5 + LOO section header, F1 ≈ 0.47.
-- Untested levers next: task fine-tuning on the tagging objective;
-  error-propagation test (LOO fed *model* codes instead of gold).
+- ~~Untested levers next: task fine-tuning on the tagging objective;
+  error-propagation test (LOO fed *model* codes instead of gold)~~ — both
+  tested at small scale on branch `small-v5-tag` (FT sec-loo 0.507; own-code
+  context 0.492, see the dress-rehearsal section above). Medium FT pending
+  analyst feedback.
