@@ -202,6 +202,7 @@ def main() -> None:
     parser.add_argument("--config", required=True)
     parser.add_argument("--max-steps", type=int, help="override train.steps")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--init", help="load an initial state dict (.pt) instead of fresh init")
     parser.add_argument("--no-compile", action="store_true", help="disable torch.compile")
     args = parser.parse_args()
 
@@ -217,6 +218,10 @@ def main() -> None:
     meta = json.loads(Path(raw["meta_path"]).read_text())
     c["vocab_size"] = meta["vocab_size"]
     model = Transformer(c).to(device)
+    if args.init:
+        state = torch.load(args.init, map_location=device, weights_only=True)
+        model.load_state_dict(state, strict=True)
+        print(f"initialized weights from {args.init}")
     n_params = sum(p.numel() for p in model.parameters())
     print(f"model: {n_params / 1e6:.1f}M params on {device} (vocab {c['vocab_size']})")
 
@@ -250,7 +255,7 @@ def main() -> None:
         model = torch.compile(model)
 
     model.train()
-    tokens_per_step = t["batch"] * c["seq_len"]
+    tokens_per_step = t["batch"] * t.get("accum", 1) * c["seq_len"]
     t0, last_tokens = time.time(), 0
     for step in range(start, t["steps"]):
         lr = lr_at(step, t)
