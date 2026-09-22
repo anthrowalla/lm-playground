@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Analyst assist — completion</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 70rem; }
+  h1 { font-size: 1.2rem; }
+  .row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; }
+  textarea { width: 100%; height: 16rem; font-family: ui-monospace, monospace;
+             font-size: 0.95rem; box-sizing: border-box; }
+  button { padding: 0.5rem 1.5rem; font-size: 1rem; cursor: pointer; }
+  label { font-size: 0.9rem; }
+  input[type=number] { width: 5rem; }
+  #status { font-size: 0.9rem; color: #666; }
+</style>
+</head>
+<body>
+<h1>Analyst assist — completion</h1>
+<div class="row">
+  <button id="go">Generate</button>
+  <label>n_predict <input id="np" type="number" value="256" min="1" max="4096"></label>
+  <label>temperature <input id="temp" type="number" value="0.7" min="0" max="2" step="0.1"></label>
+  <span id="status"></span>
+</div>
+<textarea id="in" placeholder="Paste text to continue here…"></textarea>
+<p></p>
+<textarea id="out" placeholder="Results appear here…" readonly></textarea>
+<script>
+const $ = id => document.getElementById(id);
+$("go").onclick = async () => {
+  const prompt = $("in").value;
+  if (!prompt.trim()) { $("status").textContent = "input is empty"; return; }
+  $("go").disabled = true;
+  $("status").textContent = "generating…";
+  const t0 = performance.now();
+  try {
+    const r = await fetch("/completion", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: prompt,
+        n_predict: parseInt($("np").value) || 256,
+        temperature: parseFloat($("temp").value),
+      }),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    const data = await r.json();
+    $("out").value = data.content ?? "";
+    const ms = Math.round(performance.now() - t0);
+    $("status").textContent =
+      `done in ${(ms / 1000).toFixed(1)} s (${data.tokens_predicted ?? "?"} tokens)`;
+  } catch (e) {
+    $("status").textContent = "error: " + e.message;
+    $("out").value = "";
+  } finally {
+    $("go").disabled = false;
+  }
+};
+</script>
+</body>
+</html>

@@ -7,3 +7,8 @@ data/ethnographic/*
 checkpoints/
 __pycache__/
 results/
+
+# dist build artifacts
+dist/llama.cpp/
+dist/runtime/
+dist/models/
