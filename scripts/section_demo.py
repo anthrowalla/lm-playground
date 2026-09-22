@@ -28,11 +28,9 @@ from tag_eval import evaluate_one, score
 from tokenizers import Tokenizer
 
 PREAMBLE = """\
-Paragraph-level OCM subject-code predictions from `medium_ethnographic_v5`
-(303M parameters), trained on an eHRAF-derived corpus (v5: paragraph text
-only, markup stripped, section headers carrying the title path and the union
-of that section's OCM codes). Decoding is greedy (deterministic);
-predictions are filtered to the 743 codes in the published OCM code list.
+Paragraph-level OCM subject-code predictions from `{model_name}`
+({model_desc}). Decoding is greedy (deterministic); predictions are
+filtered to the 743 codes in the published OCM code list.
 
 Each paragraph is presented with a context header: the section title path
 plus the OCM codes assigned to the *other* paragraphs of the same section
@@ -72,6 +70,17 @@ def main() -> None:
     ap.add_argument("--excerpt", type=int, default=100)
     ap.add_argument("--report", default=None,
                     help="write an analyst-review markdown report to this path")
+    ap.add_argument("--ignore-eos", action="store_true",
+                    help="smollm2-adapted GGUFs: emitted <|ocm|> halts llama-server")
+    ap.add_argument("--model-name", default="medium_ethnographic_v5")
+    ap.add_argument("--model-desc",
+                    default="303M parameters, trained from scratch on an eHRAF-derived "
+                            "corpus (v5: paragraph text only, markup stripped, section "
+                            "headers carrying the title path and the union of that "
+                            "section's OCM codes)")
+    ap.add_argument("--observations", default=None,
+                    help="markdown file with a 'patterns worth noting' block to "
+                         "include at the end (omit to skip)")
     args = ap.parse_args()
 
     names = load_code_names(Path(args.ocm_labels))
@@ -117,7 +126,8 @@ def main() -> None:
     def work(k):
         di, sec, p = items[k]
         rec = {"fields": recs[di].get("fields", {}), **p}
-        return evaluate_one(tok, args.url, k, rec, 96, 900, valid, True, 0.0, prefixes[k])
+        return evaluate_one(tok, args.url, k, rec, 96, 900, valid, True, 0.0,
+                            prefixes[k], ignore_eos=args.ignore_eos)
 
     with ThreadPoolExecutor(max_workers=4) as ex:
         rows = list(ex.map(work, range(len(items))))
@@ -129,8 +139,9 @@ def main() -> None:
     fmt = lambda cs: " · ".join(f"{c} {names.get(c, '')}" for c in cs)
 
     if args.report:
-        out = ["# eHRAF OCM paragraph tagging — model v5 review sample", "",
-               PREAMBLE, "", INTRO_ASK, ""]
+        out = [f"# eHRAF OCM paragraph tagging — {args.model_name} review sample", "",
+               PREAMBLE.format(model_name=args.model_name,
+                               model_desc=args.model_desc), "", INTRO_ASK, ""]
         for (di, sec), entries in per_section.items():
             d = recs[di]
             f = d.get("fields", {})
@@ -155,8 +166,10 @@ def main() -> None:
                 f"{s['n']} paragraphs across {len(per_section)} sections "
                 f"(3–8 paragraphs, ≥3 distinct codes each, one section per document): "
                 f"precision {s['micro_P']:.3f}, recall {s['micro_R']:.3f}, "
-                f"F1 {s['micro_F1']:.3f}, exact-set match {s['exact_match']:.3f}.", "",
-                OBSERVATIONS, ""]
+                f"F1 {s['micro_F1']:.3f}, exact-set match {s['exact_match']:.3f}."]
+        if args.observations:
+            out += ["", Path(args.observations).read_text(encoding="utf-8").rstrip()]
+        out.append("")
         Path(args.report).write_text("\n".join(out), encoding="utf-8")
         print(f"wrote {args.report}: {s['n']} paragraphs, "
               f"P {s['micro_P']:.3f}  R {s['micro_R']:.3f}  "
