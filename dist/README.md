@@ -31,7 +31,8 @@ Models are not included in this package. Whichever single `.gguf` sits in
     ./serve.sh                          # open http://127.0.0.1:8080 in a browser
     PORT=8090 THREADS=16 ./serve.sh     # overrides
 
-- Binds to `127.0.0.1` only — reachable from the host itself, not the network.
+- Binds to `127.0.0.1` only by default — reachable from the host itself, not the
+  network. Use `HOST=0.0.0.0 ./serve.sh` to expose it to the local network.
 - `THREADS` defaults to all cores; ~10 is plenty for a 362M model. Never
   lower it below 1 or pass negative values.
 - `CTX` (default 8192) is the prompt + generation context window; the models

@@ -21,6 +21,7 @@
   <button id="go">Generate</button>
   <label>n_predict <input id="np" type="number" value="256" min="1" max="4096"></label>
   <label>temperature <input id="temp" type="number" value="0.7" min="0" max="2" step="0.1"></label>
+  <label><input id="raw" type="checkbox"> raw output</label>
   <span id="status"></span>
 </div>
 <textarea id="in" placeholder="Paste text to continue here…"></textarea>
@@ -28,28 +29,59 @@
 <textarea id="out" placeholder="Results appear here…" readonly></textarea>
 <script>
 const $ = id => document.getElementById(id);
+
+// The tag model replies with at most one useful line — the first line that
+// starts with a digit (the OCM codes). Everything else is continuation or
+// next-section debris, so drop it and stop at the first numeric line.
+function filterTags(text) {
+  for (const line of text.split("\n")) {
+    if (/^\s*\d/.test(line)) return line.trim();
+  }
+  return "";
+}
+
+async function complete(body) {
+  const r = await fetch("/completion", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+  return r.json();
+}
+
 $("go").onclick = async () => {
   const prompt = $("in").value;
   if (!prompt.trim()) { $("status").textContent = "input is empty"; return; }
+  const raw = $("raw").checked;
   $("go").disabled = true;
   $("status").textContent = "generating…";
   const t0 = performance.now();
   try {
-    const r = await fetch("/completion", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt: prompt,
-        n_predict: parseInt($("np").value) || 256,
-        temperature: parseFloat($("temp").value),
-      }),
-    });
-    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
-    const data = await r.json();
-    $("out").value = data.content ?? "";
+    const base = {
+      prompt: prompt,
+      n_predict: parseInt($("np").value) || 256,
+      temperature: parseFloat($("temp").value),
+      ignore_eos: true,
+      stop: raw ? [] : ["\n\n"],
+    };
+    let data = await complete(base);
+    let rawOut = data.content ?? "";
+    let tags = filterTags(rawOut);
+    if (!raw && !tags) {
+      // a blank line preceded the OCM line and the early stop cut it off —
+      // rerun without the stop and let the filter find the line
+      $("status").textContent = "retrying without early stop…";
+      data = await complete({ ...base, stop: [] });
+      rawOut = data.content ?? "";
+      tags = filterTags(rawOut);
+    }
+    $("out").value = raw ? rawOut : tags;
     const ms = Math.round(performance.now() - t0);
-    $("status").textContent =
+    let status =
       `done in ${(ms / 1000).toFixed(1)} s (${data.tokens_predicted ?? "?"} tokens)`;
+    if (!raw && !tags) status += " — no OCM line found; tick 'raw output' to inspect";
+    $("status").textContent = status;
   } catch (e) {
     $("status").textContent = "error: " + e.message;
     $("out").value = "";
