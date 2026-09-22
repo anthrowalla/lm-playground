@@ -58,7 +58,8 @@ def evaluate_one(tok: Tokenizer, url: str, idx: int, rec: dict,
                  n_predict: int, max_prompt: int,
                  valid_codes: set[str] | None, force_marker: bool,
                  temperature: float, prefix: str = "",
-                 marker_id: int | None = None) -> dict:
+                 marker_id: int | None = None,
+                 ignore_eos: bool = False) -> dict:
     # encode the context prefix separately so head-truncation can never
     # drop it — only the paragraph text gives way
     prefix_ids = tok.encode(prefix, add_special_tokens=False).ids if prefix else []
@@ -80,6 +81,7 @@ def evaluate_one(tok: Tokenizer, url: str, idx: int, rec: dict,
         "temperature": temperature,
         "special": True,
         "stop": ["\n\n"],
+        "ignore_eos": ignore_eos,
     }, timeout=600)
     elapsed = time.time() - t0
     r.raise_for_status()
@@ -162,6 +164,9 @@ def main() -> None:
                          "sec-* variants use the native v5 <|sec|> header format")
     ap.add_argument("--temperature", type=float, default=0.0,
                     help="0 = greedy; small sampling can lengthen code lists")
+    ap.add_argument("--ignore-eos", action="store_true",
+                    help="models whose emitted <|ocm|> halts llama-server "
+                         "(SmolLM2-adapted GGUFs) need this to decode codes")
     args = ap.parse_args()
 
     out = Path(args.out)
@@ -252,7 +257,8 @@ def main() -> None:
                     return evaluate_one(tok, args.url, i, rec,
                                         args.n_predict, args.max_prompt,
                                         valid, args.force_marker,
-                                        args.temperature, prefixes[i])
+                                        args.temperature, prefixes[i],
+                                        ignore_eos=args.ignore_eos)
                 except Exception as e:  # noqa: BLE001 - keep the run alive
                     if attempt == 2:
                         return {"idx": i, "error": str(e)}

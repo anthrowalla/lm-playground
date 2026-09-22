@@ -44,6 +44,9 @@ def main() -> None:
     ap.add_argument("--max-prompt", type=int, default=900)
     ap.add_argument("--n-predict", type=int, default=96)
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--ignore-eos", action="store_true",
+                    help="models whose emitted <|ocm|> halts llama-server "
+                         "(SmolLM2-adapted GGUFs) need this to decode codes")
     args = ap.parse_args()
 
     from tokenizers import Tokenizer
@@ -70,7 +73,7 @@ def main() -> None:
         if not sec:
             continue
         sib = {c for j in groups[(it["doc"], sec)] if j != i
-               for c in preds[j]["pred"]}
+               for c in preds[j].get("pred", [])}
         named = " ".join(f"{c} {names[c]}" if c in names else c
                          for c in sorted(sib, key=lambda c: (len(c), c)))
         prefixes[i] = (f"{SEC}{sec}\n{OCM}{named}\n\n" if named
@@ -89,7 +92,7 @@ def main() -> None:
             if l.strip():
                 done.add(json.loads(l).get("idx"))
     todo = [(i, r) for i, r in tagged if i not in done]
-    print(f"0 already done, {len(todo):,} to go ({len(tagged):,} tagged total)",
+    print(f"{len(done)} already done, {len(todo):,} to go ({len(tagged):,} tagged total)",
           flush=True)
     if not todo:
         print_summary("sibpred", [json.loads(l) for l in out.open() if l.strip()])
@@ -102,10 +105,19 @@ def main() -> None:
     t0 = time.time()
     n = 0
     with out.open("a") as f, ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = [ex.submit(evaluate_one, tok, args.url, i, rec,
-                          args.n_predict, args.max_prompt, valid, True, 0.0,
-                          prefixes[i], marker_id)
-                for i, rec in todo]
+        def work(item):
+            i, rec = item
+            for attempt in range(3):
+                try:
+                    return evaluate_one(tok, args.url, i, rec,
+                                        args.n_predict, args.max_prompt,
+                                        valid, True, 0.0, prefixes[i],
+                                        marker_id, args.ignore_eos)
+                except Exception as e:  # noqa: BLE001 - keep the run alive
+                    if attempt == 2:
+                        return {"idx": i, "error": str(e)}
+                    time.sleep(2 * (attempt + 1))
+        futs = [ex.submit(work, (i, rec)) for i, rec in todo]
         for fut in futs:
             row = fut.result()
             f.write(json.dumps(row) + "\n")
