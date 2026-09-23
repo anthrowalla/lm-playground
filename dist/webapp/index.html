@@ -18,10 +18,11 @@
 <body>
 <h1>Analyst assist — completion</h1>
 <div class="row">
-  <button id="go">Generate</button>
-  <label>n_predict <input id="np" type="number" value="256" min="1" max="4096"></label>
-  <label>temperature <input id="temp" type="number" value="0.7" min="0" max="2" step="0.1"></label>
+  <button id="go">Analyze</button>
+  <label><input id="fixed" type="checkbox"> Fixed</label>
+  <label>Flexibility <input id="temp" type="number" value="0.7" min="0" max="2" step="0.1"></label>
   <label><input id="raw" type="checkbox"> raw output</label>
+  <label>n_predict <input id="np" type="number" value="256" min="1" max="4096"></label>
   <span id="status"></span>
 </div>
 <textarea id="in" placeholder="Paste text to continue here…"></textarea>
@@ -40,6 +41,22 @@ function filterTags(text) {
   return "";
 }
 
+// Fixed pins decoding to temperature 0 (deterministic); unticking restores
+// the previous Flexibility value (default 0.7)
+let lastFlex = 0.7;
+$("fixed").onchange = () => {
+  const t = $("temp");
+  if ($("fixed").checked) {
+    const v = parseFloat(t.value);
+    if (v > 0) lastFlex = v;
+    t.value = 0;
+    t.disabled = true;
+  } else {
+    t.value = lastFlex;
+    t.disabled = false;
+  }
+};
+
 async function complete(body) {
   const r = await fetch("/completion", {
     method: "POST",
@@ -54,6 +71,7 @@ $("go").onclick = async () => {
   const prompt = $("in").value;
   if (!prompt.trim()) { $("status").textContent = "input is empty"; return; }
   const raw = $("raw").checked;
+  const flex = parseFloat($("temp").value) || 0;
   $("go").disabled = true;
   $("status").textContent = "generating…";
   const t0 = performance.now();
@@ -61,7 +79,7 @@ $("go").onclick = async () => {
     const base = {
       prompt: prompt,
       n_predict: parseInt($("np").value) || 256,
-      temperature: parseFloat($("temp").value),
+      temperature: flex,
       ignore_eos: true,
       stop: raw ? [] : ["\n\n"],
     };
@@ -76,10 +94,22 @@ $("go").onclick = async () => {
       rawOut = data.content ?? "";
       tags = filterTags(rawOut);
     }
+    let fellBack = false;
+    if (!raw && !tags && flex === 0) {
+      // greedy decode dead-ended with no tag line — resample once at the
+      // default flexibility
+      $("status").textContent = "no result at Fixed — retrying at Flexibility 0.7…";
+      data = await complete({ ...base, stop: [], temperature: 0.7 });
+      rawOut = data.content ?? "";
+      tags = filterTags(rawOut);
+      fellBack = true;
+    }
     $("out").value = raw ? rawOut : tags;
     const ms = Math.round(performance.now() - t0);
     let status =
       `done in ${(ms / 1000).toFixed(1)} s (${data.tokens_predicted ?? "?"} tokens)`;
+    if (fellBack && tags)
+      status += " — Fixed had no result; sampled at Flexibility 0.7";
     if (!raw && !tags) status += " — no OCM line found; tick 'raw output' to inspect";
     $("status").textContent = status;
   } catch (e) {
