@@ -88,7 +88,7 @@ async function tagOnce(base) {
     tags = filterTags(data.content ?? "");
     fellBack = true;
   }
-  return { tags, content: data.content ?? "", fellBack };
+  return { tags, content: data.content ?? "", fellBack, data };
 }
 
 // "756 SHAMANS AND PSYCHOTHERAPISTS 776 SPIRITS AND GODS"
@@ -162,7 +162,7 @@ $("go").onclick = async () => {
       $("status").textContent =
         `done in ${ms.toFixed(1)} s — ${paras.length} paragraphs, ${seen.size} distinct OCMs`;
     } else {
-      const { tags, content, fellBack, data } = await tagOnce(base);
+      const { tags, content, fellBack, data } = await tagOnce({ ...base, prompt: input });
       $("out").value = raw ? content : tags;
       const ms = Math.round(performance.now() - t0);
       let status =
@@ -174,7 +174,7 @@ $("go").onclick = async () => {
     }
   } catch (e) {
     $("status").textContent = "error: " + e.message;
-    $("out").value = "";
+    if (!$("sec").checked) $("out").value = "";
   } finally {
     $("go").disabled = false;
   }
