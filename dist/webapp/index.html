@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Analyst assist — completion</title>
+<title>HRAF Analyst Assist - Apply the OCM to your ethnography</title>
 <style>
   body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 70rem; }
   h1 { font-size: 1.2rem; }
@@ -16,12 +16,13 @@
 </style>
 </head>
 <body>
-<h1>Analyst assist — completion</h1>
+<h1>HRAF Analyst Assist - Apply the OCM to your ethnography</h1>
 <div class="row">
   <button id="go">Analyze</button>
   <label><input id="fixed" type="checkbox"> Fixed</label>
   <label>Flexibility <input id="temp" type="number" value="0.7" min="0" max="2" step="0.1"></label>
   <label><input id="raw" type="checkbox"> raw output</label>
+  <label><input id="sec" type="checkbox"> section mode</label>
   <label>n_predict <input id="np" type="number" value="256" min="1" max="4096"></label>
   <span id="status"></span>
 </div>
@@ -67,51 +68,110 @@ async function complete(body) {
   return r.json();
 }
 
+// One Analyze pass on a finished prompt: early stop at the first blank line,
+// a no-stop retry if the filter finds nothing, and one resample at 0.7 when
+// Fixed dead-ends.
+async function tagOnce(base) {
+  let data = await complete(base);
+  let tags = filterTags(data.content ?? "");
+  let fellBack = false;
+  if (!tags) {
+    // a blank line preceded the OCM line and the early stop cut it off
+    $("status").textContent = "retrying without early stop…";
+    data = await complete({ ...base, stop: [] });
+    tags = filterTags(data.content ?? "");
+  }
+  if (!tags && base.temperature === 0) {
+    // greedy decode dead-ended with no tag line — resample once at 0.7
+    $("status").textContent = "no result at Fixed — retrying at Flexibility 0.7…";
+    data = await complete({ ...base, stop: [], temperature: 0.7 });
+    tags = filterTags(data.content ?? "");
+    fellBack = true;
+  }
+  return { tags, content: data.content ?? "", fellBack };
+}
+
+// "756 SHAMANS AND PSYCHOTHERAPISTS 776 SPIRITS AND GODS"
+//   -> [["756", "SHAMANS AND PSYCHOTHERAPISTS"], …]
+function parseCodes(line) {
+  const pairs = [];
+  let code = null, name = [];
+  for (const tok of line.trim().split(/\s+/)) {
+    if (/^\d+$/.test(tok)) {
+      if (code) pairs.push([code, name.join(" ")]);
+      code = tok; name = [];
+    } else if (code) name.push(tok);
+  }
+  if (code) pairs.push([code, name.join(" ")]);
+  return pairs;
+}
+
+// carried-forward sibling union, ordered like the eval prompts (length, code)
+function unionString(seen) {
+  return [...seen.entries()]
+    .sort((a, b) => a[0].length - b[0].length || (a[0] < b[0] ? -1 : 1))
+    .map(([c, n]) => c + (n ? " " + n : ""))
+    .join(" ");
+}
+
+function letters(i) { // 0 -> a, 1 -> b, … 25 -> z, 26 -> aa
+  let s = "";
+  for (i = i + 1; i > 0; i = Math.floor((i - 1) / 26))
+    s = String.fromCharCode(97 + ((i - 1) % 26)) + s;
+  return s;
+}
+
 $("go").onclick = async () => {
-  const prompt = $("in").value;
-  if (!prompt.trim()) { $("status").textContent = "input is empty"; return; }
+  const input = $("in").value;
+  if (!input.trim()) { $("status").textContent = "input is empty"; return; }
   const raw = $("raw").checked;
-  const flex = parseFloat($("temp").value) || 0;
+  const base = {
+    n_predict: parseInt($("np").value) || 256,
+    temperature: parseFloat($("temp").value) || 0,
+    ignore_eos: true,
+    stop: raw ? [] : ["\n\n"],
+  };
   $("go").disabled = true;
   $("status").textContent = "generating…";
   const t0 = performance.now();
   try {
-    const base = {
-      prompt: prompt,
-      n_predict: parseInt($("np").value) || 256,
-      temperature: flex,
-      ignore_eos: true,
-      stop: raw ? [] : ["\n\n"],
-    };
-    let data = await complete(base);
-    let rawOut = data.content ?? "";
-    let tags = filterTags(rawOut);
-    if (!raw && !tags) {
-      // a blank line preceded the OCM line and the early stop cut it off —
-      // rerun without the stop and let the filter find the line
-      $("status").textContent = "retrying without early stop…";
-      data = await complete({ ...base, stop: [] });
-      rawOut = data.content ?? "";
-      tags = filterTags(rawOut);
+    if ($("sec").checked) {
+      // Section mode: first line is the section title, then blank-line
+      // separated paragraphs. Each paragraph gets the native <|sec|> header
+      // whose OCM union is carried forward from the predictions so far —
+      // the sec-loo eval flow fed with the model's own earlier answers.
+      const nl = input.indexOf("\n");
+      const title = input.slice(0, nl === -1 ? undefined : nl).trim();
+      const paras = (nl === -1 ? "" : input.slice(nl + 1))
+        .split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+      if (!paras.length) throw new Error("no paragraphs after the title");
+      const seen = new Map();
+      const lines = [];
+      for (let i = 0; i < paras.length; i++) {
+        $("status").textContent =
+          `section mode: paragraph ${i + 1} of ${paras.length}…`;
+        const union = unionString(seen);
+        const prompt =
+          `<|sec|>${title}\n${union ? "<|ocm|>" + union + "\n" : ""}\n${paras[i]}\n`;
+        const { tags } = await tagOnce({ ...base, stop: ["\n\n"], prompt });
+        lines.push(`${letters(i)}) ${tags || "(no result)"}`);
+        $("out").value = lines.join("\n");
+        for (const [c, n] of parseCodes(tags)) if (!seen.has(c)) seen.set(c, n);
+      }
+      const ms = (performance.now() - t0) / 1000;
+      $("status").textContent =
+        `done in ${ms.toFixed(1)} s — ${paras.length} paragraphs, ${seen.size} distinct OCMs`;
+    } else {
+      const { tags, content, fellBack, data } = await tagOnce(base);
+      $("out").value = raw ? content : tags;
+      const ms = Math.round(performance.now() - t0);
+      let status =
+        `done in ${(ms / 1000).toFixed(1)} s (${data.tokens_predicted ?? "?"} tokens)`;
+      if (fellBack && tags)
+        status += " — Fixed had no result; sampled at Flexibility 0.7";
+      if (!raw && !tags) status += " — no OCM line found; tick 'raw output' to inspect";
+      $("status").textContent = status;
     }
-    let fellBack = false;
-    if (!raw && !tags && flex === 0) {
-      // greedy decode dead-ended with no tag line — resample once at the
-      // default flexibility
-      $("status").textContent = "no result at Fixed — retrying at Flexibility 0.7…";
-      data = await complete({ ...base, stop: [], temperature: 0.7 });
-      rawOut = data.content ?? "";
-      tags = filterTags(rawOut);
-      fellBack = true;
-    }
-    $("out").value = raw ? rawOut : tags;
-    const ms = Math.round(performance.now() - t0);
-    let status =
-      `done in ${(ms / 1000).toFixed(1)} s (${data.tokens_predicted ?? "?"} tokens)`;
-    if (fellBack && tags)
-      status += " — Fixed had no result; sampled at Flexibility 0.7";
-    if (!raw && !tags) status += " — no OCM line found; tick 'raw output' to inspect";
-    $("status").textContent = status;
   } catch (e) {
     $("status").textContent = "error: " + e.message;
     $("out").value = "";

@@ -37,8 +37,12 @@ Models are not included in this package. Whichever single `.gguf` sits in
   lower it below 1 or pass negative values.
 - `CTX` (default 8192) is the prompt + generation context window; the models
   are validated up to 8192 tokens.
-- The web UI (`webapp/`) is served at `/`. For API use, POST JSON directly to
-  `/completion`:
+- The web UI (`webapp/`) is served at `/`. Tick **section mode** to analyze a
+  whole section: first line is the section title, then blank-line-separated
+  paragraphs. Each paragraph is tagged with an OCM union carried forward from
+  the predictions so far (the leave-one-out flow fed with the model's own
+  earlier answers), and results are listed `a) b) c)…` in the output box.
+  For API use, POST JSON directly to `/completion`:
 
       curl -s http://127.0.0.1:8080/completion \
         -H 'Content-Type: application/json' \
