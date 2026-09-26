@@ -29,23 +29,24 @@
   button { padding: 0.5rem 1.5rem; font-size: 1rem; cursor: pointer; }
   label { font-size: 0.9rem; }
   input[type=number] { width: 5rem; }
+  #para { width: 3rem; }
   #status { font-size: 0.9rem; color: #666; }
 </style>
 </head>
 <body>
 <h1>HRAF Analyst Assist - Apply the OCM to your ethnography</h1>
 <div class="row">
-  <button id="go">Analyze</button>
-  <label><input id="fixed" type="checkbox"> Fixed</label>
-  <label>Flexibility <input id="temp" type="number" value="0.7" min="0" max="2" step="0.1"></label>
-  <label><input id="sec" type="checkbox"> section mode</label>
-  <label><input id="raw" type="checkbox"> raw output</label>
-  <label>n_predict <input id="np" type="number" value="256" min="1" max="4096"></label>
+  <button id="go" title="Identify OCMs for text below">Analyze</button>
+  <label title="Always return same OCMs"><input id="fixed" type="checkbox"> Fixed</label>
+  <label title="Broadens OCM selection">Flexibility <input id="temp" type="number" value="0.7" min="0" max="2" step="0.1"></label>
+  <label title="Process section header + paragraphs"><input id="sec" type="checkbox"> section mode</label>
+  <label title="Diagnostic. Shows what is returned by LLM"><input id="raw" type="checkbox"> raw output</label>
+  <label title="Development. How many tokens to scan on output">n_predict <input id="np" type="number" value="256" min="1" max="4096"></label>
   <span id="status"></span>
 </div>
 <div class="row">
   <label>Sample <select id="sample"></select></label>
-  <label id="parawrap" hidden>Paragraph <select id="para"></select></label>
+  <label id="parawrap" hidden>Paragraph <input id="para" type="number" min="1" value="1"></label>
 </div>
 <textarea id="in" placeholder="Paste text here or choose sample above to continue…"></textarea>
 <p></p>
@@ -240,14 +241,19 @@ function insertSample() {
     $("in").value = [s.section, ...s.paras].join("\n\n");
     $("parawrap").hidden = true;
   } else {
-    $("para").replaceChildren(...s.paras.map((_, k) => new Option(k + 1, k)));
+    const p = $("para");
+    p.max = s.paras.length;
+    p.value = 1;
     $("parawrap").hidden = false;
-    $("in").value = s.paras[+$("para").value];
+    $("in").value = s.paras[0];
   }
 }
 $("sample").onchange = insertSample;
-$("para").onchange = () => {
-  $("in").value = SAMPLES[+$("sample").value].paras[+$("para").value];
+$("para").oninput = () => {
+  const s = SAMPLES[+$("sample").value];
+  if (!s) return;
+  const k = Math.min(Math.max(1, Math.round(+$("para").value) || 1), s.paras.length);
+  $("in").value = s.paras[k - 1];
 };
 
 $("go").onclick = async () => {

@@ -24,6 +24,11 @@ Only these files are part of the package:
                          they may ship publicly; the full corpus still may
                          not
     README.md            user-facing instructions
+    demodist.tgz         repo-side tarball of exactly the files above, for
+                         building on a remote host without cloning this repo
+                         — regenerate from the REPO ROOT after any edit:
+                         tar -czf dist/demodist.tgz dist/CLAUDE.md \
+                             dist/Makefile dist/README.md dist/serve.sh dist/webapp
 
 Everything else is created on the host: `llama.cpp/` (fetched source, pinned
 to `LLAMA_REF` in the Makefile — the commit the models were validated
@@ -96,6 +101,10 @@ because greedy decode dead-ends occasionally and the early stop is lossy.
 
 ## Editing notes
 
+- The control tooltips (title attrs on the controls row) are PROVISIONAL
+  user wording from 2026-09-26 — reconsider the phrasing once HRAF analyst
+  feedback on the 10-section sample arrives. Don't polish unprompted.
+
 - Tag lines are rendered by `linkifyTags()`: every digit run becomes a link
   that opens `showOcm(code)` — a NON-MODAL in-page `<dialog>` (NOT
   window.open, so it works inside sandboxed iframes) pinned to the top of
@@ -127,8 +136,9 @@ because greedy decode dead-ends occasionally and the early stop is lossy.
   to 3 digits; codes missing from the codebook show "not in codebook".
 - The Sample menu (`SAMPLES` from samples.js) inserts its selection into the
   input: whole section (section-title line + blank-line-separated
-  paragraphs) when section mode is on, else one paragraph with a numbered
-  Paragraph select. Toggling section mode re-inserts the current sample —
+  paragraphs) when section mode is on, else the first paragraph with a
+  Paragraph number-spinner (1..N; `oninput` clamps out-of-range values for
+  insertion). Toggling section mode re-inserts the current sample —
   keep that coupling if you touch either handler.
 - `letters(i)` renders results as `a) b) … z) aa)` — zero-based, bijective
   base-26. Section mode ends with a visible blank line (an nbsp-filled

@@ -42,7 +42,7 @@ Models are not included in this package. Whichever single `.gguf` sits in
   codebook (`webapp/ocmdefs.txt`). The **Sample** menu holds 10 gold sections (one
   per work) picked for HRAF analyst feedback: with **section mode** ticked,
   selecting a sample inserts the whole section; otherwise it inserts the
-  first paragraph and a **Paragraph** menu appears to pick any of them.
+  first paragraph and a **Paragraph** spinner appears to pick any of them.
   Tick **section mode** to analyze a
   whole section: first line is the section title, then blank-line-separated
   paragraphs. Each paragraph is tagged with an OCM union carried forward from
@@ -60,6 +60,8 @@ Models are not included in this package. Whichever single `.gguf` sits in
 
     Makefile          build + local install (see targets: fetch, build, install, serve, clean)
     serve.sh          start script (PORT / THREADS / CTX / MODEL env overrides)
+    demodist.tgz      tarball of just these package files, for building on a
+                      remote host (regenerate from the repo root after edits)
     webapp/index.html the two-textarea UI (POSTs to /completion)
     webapp/ocmdefs.txt OCM codebook for the clickable definitions
                        (verbatim copy of the dev repo's data/ethnographic/ocmdefs.txt)
