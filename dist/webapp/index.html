@@ -9,6 +9,23 @@
   .row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; }
   textarea { width: 100%; height: 16rem; font-family: ui-monospace, monospace;
              font-size: 0.95rem; box-sizing: border-box; }
+  #out { width: 100%; min-height: 16rem; max-height: 32rem; overflow-y: auto;
+         border: 1px solid #767676; border-radius: 4px; padding: 0.5rem;
+         font-family: ui-monospace, monospace; font-size: 0.95rem;
+         box-sizing: border-box; white-space: pre-wrap; overflow-wrap: break-word;
+         background: #fafafa; }
+  #out:empty::before { content: "Results appear here…"; color: #999; }
+  #out a, #ocm a { color: #0645ad; text-decoration: underline dotted;
+                   cursor: pointer; }
+  #ocm { position: fixed; top: 0.5rem; left: 50%; translate: -50% 0; margin: 0;
+         z-index: 10; width: 34rem; max-width: 92vw; resize: vertical;
+         min-height: 3rem; overflow-y: auto; box-sizing: border-box;
+         padding: 1.2rem;
+         border-radius: 4px; box-shadow: 0 2px 12px rgb(0 0 0 / 0.25);
+         font-family: Georgia, serif; font-size: 0.95rem; line-height: 1.45; }
+  #ocm h1 { font-size: 1.1rem; margin: 0 4rem 0.6rem 0; }
+  #ocm button { float: right; margin: -0.2rem -0.2rem 0 0;
+                padding: 0.15rem 0.7rem; font-size: 0.85rem; }
   button { padding: 0.5rem 1.5rem; font-size: 1rem; cursor: pointer; }
   label { font-size: 0.9rem; }
   input[type=number] { width: 5rem; }
@@ -21,16 +38,99 @@
   <button id="go">Analyze</button>
   <label><input id="fixed" type="checkbox"> Fixed</label>
   <label>Flexibility <input id="temp" type="number" value="0.7" min="0" max="2" step="0.1"></label>
-  <label><input id="raw" type="checkbox"> raw output</label>
   <label><input id="sec" type="checkbox"> section mode</label>
+  <label><input id="raw" type="checkbox"> raw output</label>
   <label>n_predict <input id="np" type="number" value="256" min="1" max="4096"></label>
   <span id="status"></span>
 </div>
-<textarea id="in" placeholder="Paste text to continue here…"></textarea>
+<div class="row">
+  <label>Sample <select id="sample"></select></label>
+  <label id="parawrap" hidden>Paragraph <select id="para"></select></label>
+</div>
+<textarea id="in" placeholder="Paste text here or choose sample above to continue…"></textarea>
 <p></p>
-<textarea id="out" placeholder="Results appear here…" readonly></textarea>
+<div id="out"></div>
+<dialog id="ocm"></dialog>
+<script src="samples.js"></script>
 <script>
 const $ = id => document.getElementById(id);
+
+// The OCM codebook (webapp/ocmdefs.txt, verbatim copy of data/ethnographic/
+// ocmdefs.txt): blank-line-separated blocks of "CODE NAME", a "Summary - …"
+// line and an optional "Related Terms - …" line. code -> {name, summary, related}
+const OCM = new Map();
+fetch("ocmdefs.txt").then(r => r.text()).then(txt => {
+  for (const block of txt.split(/\n\s*\n/)) {
+    const ls = block.split("\n").filter(Boolean);
+    const m = ls.length && ls[0].match(/^(\d+)\s+(.+)$/);
+    if (!m) continue;
+    const sum = ls.find(l => l.startsWith("Summary - "));
+    const rel = ls.find(l => l.startsWith("Related Terms - "));
+    OCM.set(m[1], {
+      name: m[2],
+      summary: sum ? sum.slice("Summary - ".length).trim() : "",
+      related: rel ? rel.slice("Related Terms - ".length).trim() : "",
+    });
+  }
+}).catch(e => { $("status").textContent = "codebook load failed: " + e.message; });
+
+// In-page non-modal dialog (iframe/sandbox-safe — no window.open) pinned to
+// the top of the viewport; each clicked code rewrites it in place and the
+// page stays clickable. Georgia/serif at #out's size.
+function showOcm(code) {
+  if (!OCM.size) { $("status").textContent = "codebook still loading…"; return; }
+  const d = $("ocm");
+  const e = OCM.get(code) ?? OCM.get(code.padStart(3, "0"));
+  const close = document.createElement("button");
+  close.textContent = "Close";
+  close.onclick = () => d.close();
+  const h = document.createElement("h1");
+  h.textContent = `${code}${e ? " " + e.name : " — not in codebook"}`;
+  d.replaceChildren(close, h);
+  if (e) {
+    const p = document.createElement("p");
+    p.append(linkifyTags(e.summary, true));
+    d.append(p);
+    if (e.related) {
+      const r = document.createElement("p");
+      r.append(Object.assign(document.createElement("b"),
+        { textContent: "Related Terms" }), " — ");
+      r.append(linkifyTags(e.related, true));
+      d.append(r);
+    }
+  }
+  if (!d.open) d.show(); // non-modal — results stay clickable
+  // (re)size to the content on every change: height capped at the output
+  // div's top, pinned, then freed so the drag handle can exceed that bound
+  d.style.maxHeight =
+    Math.max(160, $("out").getBoundingClientRect().top + scrollY - 16) + "px";
+  d.style.height = "auto";
+  d.style.height = d.getBoundingClientRect().height + "px";
+  d.style.maxHeight = "";
+}
+
+// non-modal dialogs get no native Esc-to-close
+document.addEventListener("keydown", ev => {
+  if (ev.key === "Escape") $("ocm").close();
+});
+
+// Render text with OCM code numbers as definition links. Result lines
+// linkify every digit run; dialog content passes onlyKnown=true so years
+// and counts that aren't codebook entries stay plain text.
+function linkifyTags(text, onlyKnown) {
+  const frag = document.createDocumentFragment();
+  for (const tok of text.split(/(\d+)/)) {
+    if (/^\d+$/.test(tok) &&
+        (!onlyKnown || OCM.has(tok) || OCM.has(tok.padStart(3, "0")))) {
+      const a = document.createElement("a");
+      a.textContent = tok;
+      a.href = "#";
+      a.onclick = ev => { ev.preventDefault(); showOcm(tok); };
+      frag.append(a);
+    } else if (tok) frag.append(tok);
+  }
+  return frag;
+}
 
 // The tag model replies with at most one useful line — the first line that
 // starts with a digit (the OCM codes). Everything else is continuation or
@@ -57,6 +157,9 @@ $("fixed").onchange = () => {
     t.disabled = false;
   }
 };
+
+// toggling section mode re-inserts the current sample in its other form
+$("sec").onchange = () => { if ($("sample").value) insertSample(); };
 
 async function complete(body) {
   const r = await fetch("/completion", {
@@ -106,11 +209,14 @@ function parseCodes(line) {
   return pairs;
 }
 
-// carried-forward sibling union, ordered like the eval prompts (length, code)
-function unionString(seen) {
+// carried-forward sibling union, ordered like the eval prompts (length, code);
+// passing counts annotates repeat occurrences: "+" attached to the label at
+// 2 occurrences, "++" at 3+
+function unionString(seen, counts) {
   return [...seen.entries()]
     .sort((a, b) => a[0].length - b[0].length || (a[0] < b[0] ? -1 : 1))
-    .map(([c, n]) => c + (n ? " " + n : ""))
+    .map(([c, n]) => c + (n ? " " + n : "") +
+      (!counts ? "" : counts.get(c) >= 3 ? "++" : counts.get(c) === 2 ? "+" : ""))
     .join(" ");
 }
 
@@ -120,6 +226,29 @@ function letters(i) { // 0 -> a, 1 -> b, … 25 -> z, 26 -> aa
     s = String.fromCharCode(97 + ((i - 1) % 26)) + s;
   return s;
 }
+
+// Samples: 10 gold feedback sections (webapp/samples.js, generated by
+// scripts/make_samples.py). Options are the work titles; selecting one
+// inserts it into the input — the whole section when section mode is on,
+// otherwise one paragraph via the paragraph select that appears beside it.
+$("sample").add(new Option("— choose a sample —", ""));
+for (const [i, s] of SAMPLES.entries()) $("sample").add(new Option(s.title, i));
+function insertSample() {
+  const s = SAMPLES[+$("sample").value];
+  if (!s) { $("parawrap").hidden = true; return; }
+  if ($("sec").checked) {
+    $("in").value = [s.section, ...s.paras].join("\n\n");
+    $("parawrap").hidden = true;
+  } else {
+    $("para").replaceChildren(...s.paras.map((_, k) => new Option(k + 1, k)));
+    $("parawrap").hidden = false;
+    $("in").value = s.paras[+$("para").value];
+  }
+}
+$("sample").onchange = insertSample;
+$("para").onchange = () => {
+  $("in").value = SAMPLES[+$("sample").value].paras[+$("para").value];
+};
 
 $("go").onclick = async () => {
   const input = $("in").value;
@@ -146,6 +275,7 @@ $("go").onclick = async () => {
         .split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
       if (!paras.length) throw new Error("no paragraphs after the title");
       const seen = new Map();
+      const counts = new Map();
       const lines = [];
       for (let i = 0; i < paras.length; i++) {
         $("status").textContent =
@@ -154,16 +284,33 @@ $("go").onclick = async () => {
         const prompt =
           `<|sec|>${title}\n${union ? "<|ocm|>" + union + "\n" : ""}\n${paras[i]}\n`;
         const { tags } = await tagOnce({ ...base, stop: ["\n\n"], prompt });
-        lines.push(`${letters(i)}) ${tags || "(no result)"}`);
-        $("out").value = lines.join("\n");
-        for (const [c, n] of parseCodes(tags)) if (!seen.has(c)) seen.set(c, n);
+        lines.push(tags || "(no result)");
+        $("out").replaceChildren(...lines.map((t, i) => {
+          const div = document.createElement("div");
+          div.append(`${letters(i)}) `, linkifyTags(t));
+          return div;
+        }));
+        for (const [c, n] of parseCodes(tags)) {
+          if (!seen.has(c)) seen.set(c, n);
+          counts.set(c, (counts.get(c) ?? 0) + 1);
+        }
+      }
+      if (seen.size) {
+        // aggregate union of every code seen, after a blank line — the
+        // spacer needs a non-breaking space, an empty div collapses to 0 height
+        const gap = document.createElement("div");
+        gap.append(" ");
+        const agg = document.createElement("div");
+        agg.append(linkifyTags(unionString(seen, counts)));
+        $("out").append(gap, agg);
       }
       const ms = (performance.now() - t0) / 1000;
       $("status").textContent =
         `done in ${ms.toFixed(1)} s — ${paras.length} paragraphs, ${seen.size} distinct OCMs`;
     } else {
       const { tags, content, fellBack, data } = await tagOnce({ ...base, prompt: input });
-      $("out").value = raw ? content : tags;
+      if (raw) $("out").textContent = content;
+      else $("out").replaceChildren(linkifyTags(tags));
       const ms = Math.round(performance.now() - t0);
       let status =
         `done in ${(ms / 1000).toFixed(1)} s (${data.tokens_predicted ?? "?"} tokens)`;
@@ -174,7 +321,7 @@ $("go").onclick = async () => {
     }
   } catch (e) {
     $("status").textContent = "error: " + e.message;
-    if (!$("sec").checked) $("out").value = "";
+    if (!$("sec").checked) $("out").replaceChildren();
   } finally {
     $("go").disabled = false;
   }

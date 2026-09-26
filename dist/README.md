@@ -37,11 +37,19 @@ Models are not included in this package. Whichever single `.gguf` sits in
   lower it below 1 or pass negative values.
 - `CTX` (default 8192) is the prompt + generation context window; the models
   are validated up to 8192 tokens.
-- The web UI (`webapp/`) is served at `/`. Tick **section mode** to analyze a
+- The web UI (`webapp/`) is served at `/`. Every OCM code in the results is
+  clickable and opens an in-page dialog with that code's definition from the
+  codebook (`webapp/ocmdefs.txt`). The **Sample** menu holds 10 gold sections (one
+  per work) picked for HRAF analyst feedback: with **section mode** ticked,
+  selecting a sample inserts the whole section; otherwise it inserts the
+  first paragraph and a **Paragraph** menu appears to pick any of them.
+  Tick **section mode** to analyze a
   whole section: first line is the section title, then blank-line-separated
   paragraphs. Each paragraph is tagged with an OCM union carried forward from
   the predictions so far (the leave-one-out flow fed with the model's own
-  earlier answers), and results are listed `a) b) c)…` in the output box.
+  earlier answers), and results are listed `a) b) c)…` in the output box,
+  followed by the aggregate OCM set for the whole section (`+` attached to
+  a code's label when seen twice, `++` for three or more).
   For API use, POST JSON directly to `/completion`:
 
       curl -s http://127.0.0.1:8080/completion \
@@ -53,5 +61,9 @@ Models are not included in this package. Whichever single `.gguf` sits in
     Makefile          build + local install (see targets: fetch, build, install, serve, clean)
     serve.sh          start script (PORT / THREADS / CTX / MODEL env overrides)
     webapp/index.html the two-textarea UI (POSTs to /completion)
+    webapp/ocmdefs.txt OCM codebook for the clickable definitions
+                       (verbatim copy of the dev repo's data/ethnographic/ocmdefs.txt)
+    webapp/samples.js  the 10 gold feedback sections (brief eHRAF excerpts,
+                       cleared as fair use)
     runtime/          installed binaries (created by make)
     models/           drop .gguf models here (created by make)
