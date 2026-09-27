@@ -33,8 +33,11 @@ llama.cpp:
 	cd $@ && git remote add origin $(LLAMA_URL)
 	cd $@ && git fetch -q --depth 1 origin $(LLAMA_REF) && git checkout -q FETCH_HEAD
 
+# CMAKE_INSTALL_LIBDIR pinned to lib: RedHat's GNUInstallDirs defaults it
+# to lib64, which would break serve.sh and the $ORIGIN/../lib RUNPATH
 CONFIG_FLAGS = -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=OFF \
                -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF \
+               -DCMAKE_INSTALL_LIBDIR=lib \
                -DCMAKE_INSTALL_PREFIX=$(PREFIX) \
                -DCMAKE_INSTALL_RPATH='$$ORIGIN/../lib'
 
@@ -65,6 +68,8 @@ install: compiler-check | llama.cpp
 	$(ENABLE)cmake -S llama.cpp -B llama.cpp/build $(CONFIG_FLAGS)
 	$(ENABLE)cmake --build llama.cpp/build --target install -j$(NPROC)
 	mkdir -p models
+	@test -f "$(PREFIX)/lib/libllama-server-impl.so" \
+	  || { echo "ERROR: install incomplete - libs did not land in $(PREFIX)/lib" >&2; exit 1; }
 	@echo
 	@echo "Install OK: $(PREFIX)/bin/llama-server"
 	@echo "Next: put a .gguf model in models/, then run ./serve.sh"

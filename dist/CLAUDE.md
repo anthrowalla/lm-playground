@@ -35,7 +35,10 @@ Only these files are part of the package:
 
 Everything else is created on the host: `llama.cpp/` (fetched source, pinned
 to `LLAMA_REF` in the Makefile — the commit the models were validated
-against), `runtime/` (installed binaries), `models/` (drop-in .gguf). Never
+against), `runtime/` (installed binaries), `models/` (drop-in .gguf). The
+Makefile pins `CMAKE_INSTALL_LIBDIR=lib` — RedHat's GNUInstallDirs would
+otherwise install into `lib64` and break serve.sh and the RUNPATH — and its
+install target fails loudly if the libs didn't land in `runtime/lib`. Never
 commit or edit generated `llama.cpp/` source; model behavior changes belong
 upstream in the dev repo.
 
@@ -59,7 +62,10 @@ unsupported.
     ./serve.sh                             # http://127.0.0.1:8080
 
 serve.sh env overrides: `PORT` (8080), `HOST` (127.0.0.1; 0.0.0.0 exposes to
-the network), `THREADS` (nproc; ~10 is plenty for the 362M model), `CTX`
+the network), `THREADS` (nproc; ~10 is plenty for the 362M model),
+`THREADS_BATCH` (= THREADS; the prompt-processing pool — prefill is
+compute-bound and tolerates more threads than decode, so a split like
+`THREADS=8 THREADS_BATCH=16` can win on dual-socket hosts), `CTX`
 (8192 — models are validated up to 8192), `MODEL` (gguf path). THREADS must
 always be ≥ 1 — never `-t -1` (thread oversubscription collapses throughput).
 
@@ -75,7 +81,11 @@ Do not introduce a bundler, framework, or new JS files. Debug it with the
 browser dev tools console (there is no linter or test suite here).
 
 The UI POSTs to llama.cpp's native `/completion` endpoint (NOT
-OpenAI-compatible `/v1/chat/completions`). One request = one synchronous
+OpenAI-compatible `/v1/chat/completions`), using a fetch URL *relative to
+the page* (`fetch("completion")`) so the app also works behind a reverse
+proxy mounted at a subpath (`ProxyPass /demo/ http://127.0.0.1:8080/` —
+keep the trailing slashes; an absolute `/completion` would escape the
+proxy and hit the front server's 404). One request = one synchronous
 completion:
 
     curl -s http://127.0.0.1:8080/completion -H 'Content-Type: application/json' \

@@ -45,8 +45,15 @@ Models are not included in this package. Whichever single `.gguf` sits in
 
 - Binds to `127.0.0.1` only by default — reachable from the host itself, not the
   network. Use `HOST=0.0.0.0 ./serve.sh` to expose it to the local network.
+- Behind a reverse proxy, mount it at a subpath with trailing slashes on both
+  sides, e.g. `ProxyPass /demo/ http://127.0.0.1:8080/`. The web app resolves
+  its API calls relative to the page URL, so no proxy rewriting is needed.
 - `THREADS` defaults to all cores; ~10 is plenty for a 362M model. Never
   lower it below 1 or pass negative values.
+- `THREADS_BATCH` (default = `THREADS`) sizes the prompt-processing pool
+  separately: prompt processing is compute-bound and likes more threads than
+  decode (memory-bandwidth-bound) — e.g. `THREADS=8 THREADS_BATCH=16` on a
+  dual-socket host.
 - `CTX` (default 8192) is the prompt + generation context window; the models
   are validated up to 8192 tokens.
 - The web UI (`webapp/`) is served at `/`. Every OCM code in the results is

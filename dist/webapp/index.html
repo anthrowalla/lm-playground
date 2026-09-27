@@ -163,7 +163,9 @@ $("fixed").onchange = () => {
 $("sec").onchange = () => { if ($("sample").value) insertSample(); };
 
 async function complete(body) {
-  const r = await fetch("/completion", {
+  // page-relative, not "/completion" — so the app works behind a reverse
+  // proxy mounted at a subpath (ProxyPass /demo/ → backend /)
+  const r = await fetch("completion", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
