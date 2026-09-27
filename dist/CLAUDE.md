@@ -11,6 +11,8 @@ must work without CUDA, Python tooling, or node.
 Only these files are part of the package:
 
     Makefile             fetch pinned llama.cpp, build CPU-only, install
+    dependencies.sh      install build deps (git, make, cmake; adds a
+                         gcc-toolset where the system GCC is < 9 — RHEL 8)
     serve.sh             start script (env overrides, see below)
     webapp/index.html    the entire web application (vanilla JS, no build)
     webapp/ocmdefs.txt   the OCM codebook — verbatim copy of the dev repo's
@@ -28,7 +30,8 @@ Only these files are part of the package:
                          building on a remote host without cloning this repo
                          — regenerate from the REPO ROOT after any edit:
                          tar -czf dist/demodist.tgz dist/CLAUDE.md \
-                             dist/Makefile dist/README.md dist/serve.sh dist/webapp
+                             dist/Makefile dist/README.md dist/serve.sh \
+                             dist/dependencies.sh dist/webapp
 
 Everything else is created on the host: `llama.cpp/` (fetched source, pinned
 to `LLAMA_REF` in the Makefile — the commit the models were validated
@@ -38,8 +41,20 @@ upstream in the dev repo.
 
 ## Install & run
 
-    sudo dnf install -y gcc gcc-c++ make cmake git
+    ./dependencies.sh                      # git, make, cmake (+ gcc-toolset on RHEL 8)
     make                                   # fetch + build + install to runtime/
+
+RHEL 8's system GCC 8.5 cannot build the pinned llama.cpp (missing
+`std::filesystem` link, CTAD and `<iomanip>` errors) — dependencies.sh
+installs gcc-toolset-12 there. The Makefile sources the newest
+`/opt/rh/gcc-toolset-*/enable` itself regardless of the invoking shell,
+and its compiler-check target wipes `llama.cpp/build` when the cached
+`CMAKE_CXX_COMPILER` differs from the `c++` now on PATH — a stale cache
+silently keeps the old compiler even after the environment changes, which
+is exactly the trap that cost the first remote build. Manual equivalent:
+install `gcc-toolset-12-gcc{,-c++}`, `rm -rf llama.cpp/build`, `source
+/opt/rh/gcc-toolset-12/enable` in the same shell as `make`. CentOS 7 is
+unsupported.
     cp /path/to/model-q8_0.gguf models/    # whichever single .gguf is served
     ./serve.sh                             # http://127.0.0.1:8080
 

@@ -5,9 +5,21 @@ RedHat-compatible host (RHEL / Rocky / Alma / Fedora).
 
 ## Requirements
 
-    sudo dnf install -y gcc gcc-c++ make cmake git
+    ./dependencies.sh
 
-No GPU, driver, or CUDA toolkit required.
+installs git, make and cmake, plus a gcc-toolset where the system compiler
+is too old. No GPU, driver, or CUDA toolkit required.
+
+**RHEL 8: the system GCC 8.5 is too old** for the pinned llama.cpp
+(undefined `std::filesystem` links, CTAD and `<iomanip>` build errors).
+`dependencies.sh` installs gcc-toolset-12, and the Makefile activates it
+itself — it also wipes `llama.cpp/build` when its cached compiler no
+longer matches, so plain `make` just works and nothing needs sourcing by
+hand. Manual equivalent: install `gcc-toolset-12-gcc{,-c++}`, `rm -rf
+llama.cpp/build`, `source /opt/rh/gcc-toolset-12/enable` in the same
+shell as `make`.
+
+(CentOS 7's GCC 4.8 is unsupported.)
 
 ## Build & install
 
@@ -59,6 +71,8 @@ Models are not included in this package. Whichever single `.gguf` sits in
 ## Layout
 
     Makefile          build + local install (see targets: fetch, build, install, serve, clean)
+    dependencies.sh   install build deps (git/make/cmake; gcc-toolset where the
+                      system GCC is too old, i.e. RHEL 8)
     serve.sh          start script (PORT / THREADS / CTX / MODEL env overrides)
     demodist.tgz      tarball of just these package files, for building on a
                       remote host (regenerate from the repo root after edits)
